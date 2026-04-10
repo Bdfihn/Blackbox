@@ -1,18 +1,3 @@
-# Runtime data
 data/
 diary/
-
-# Python
-__pycache__/
-*.pyc
-*.pyo
-.venv/
-*.egg-info/
-
-# Environment
-.env
-*.env
-
-# OS
-.DS_Store
-Thumbs.db
+notes.txt
