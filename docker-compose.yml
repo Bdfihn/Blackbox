@@ -1,0 +1,55 @@
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: blackbox-qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  etl:
+    build:
+      context: ./etl
+    container_name: blackbox-etl
+    restart: unless-stopped
+    depends_on:
+      - qdrant
+    volumes:
+      - ./diary:/app/diary
+      - ./data:/app/data
+    environment:
+      - QDRANT_HOST=blackbox-qdrant
+      - QDRANT_PORT=6333
+      - OLLAMA_HOST=host.docker.internal
+      - OLLAMA_PORT=11434
+      - ACTIVITYWATCH_HOST=host.docker.internal
+      - ACTIVITYWATCH_PORT=5600
+      - IMAZING_BACKUP_PASSWORD=your_backup_password_here
+      - TIMEZONE=America/New_York
+      - TZ=America/New_York
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  query:
+    build:
+      context: ./query
+    container_name: blackbox-query
+    restart: unless-stopped
+    depends_on:
+      - qdrant
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./diary:/app/diary
+      - ./data:/app/data
+    environment:
+      - QDRANT_HOST=blackbox-qdrant
+      - QDRANT_PORT=6333
+      - OLLAMA_HOST=host.docker.internal
+      - OLLAMA_PORT=11434
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  qdrant_data:

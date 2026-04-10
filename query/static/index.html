@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Blackbox</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #0f0f0f;
+    color: #e0e0e0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  header {
+    padding: 16px 24px;
+    border-bottom: 1px solid #222;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  header h1 {
+    font-size: 18px;
+    font-weight: 600;
+    color: #fff;
+    letter-spacing: -0.3px;
+  }
+
+  nav {
+    display: flex;
+    gap: 4px;
+    margin-left: auto;
+  }
+
+  nav button {
+    background: none;
+    border: 1px solid transparent;
+    color: #888;
+    padding: 6px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.15s;
+  }
+
+  nav button.active, nav button:hover {
+    background: #1e1e1e;
+    border-color: #333;
+    color: #fff;
+  }
+
+  main {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+  }
+
+  /* ── Search view ── */
+  #search-view {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 32px 24px;
+    width: 100%;
+  }
+
+  .search-box {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 24px;
+  }
+
+  .search-box input {
+    flex: 1;
+    background: #1a1a1a;
+    border: 1px solid #2e2e2e;
+    color: #e0e0e0;
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  .search-box input:focus { border-color: #555; }
+
+  .search-box input::placeholder { color: #555; }
+
+  .date-input {
+    background: #1a1a1a;
+    border: 1px solid #2e2e2e;
+    color: #888;
+    padding: 12px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    outline: none;
+    width: 140px;
+  }
+
+  .search-box button {
+    background: #2e2e2e;
+    border: none;
+    color: #fff;
+    padding: 12px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: background 0.15s;
+    white-space: nowrap;
+  }
+
+  .search-box button:hover { background: #3e3e3e; }
+  .search-box button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .suggestions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 24px;
+  }
+
+  .suggestion {
+    background: #1a1a1a;
+    border: 1px solid #2a2a2a;
+    color: #888;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .suggestion:hover { border-color: #444; color: #ccc; }
+
+  #result {
+    flex: 1;
+    overflow-y: auto;
+  }
+
+  .answer-block {
+    background: #161616;
+    border: 1px solid #252525;
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+
+  .answer-block .label {
+    font-size: 11px;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 10px;
+  }
+
+  .answer-block p {
+    font-size: 14px;
+    line-height: 1.7;
+    color: #d0d0d0;
+    white-space: pre-wrap;
+  }
+
+  .sources {
+    display: flex;
+    gap: 6px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+  }
+
+  .source-badge {
+    background: #222;
+    border: 1px solid #333;
+    color: #666;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+  }
+
+  .chunks-toggle {
+    background: none;
+    border: none;
+    color: #555;
+    font-size: 12px;
+    cursor: pointer;
+    padding: 8px 0 0;
+    display: block;
+  }
+
+  .chunks-toggle:hover { color: #888; }
+
+  .chunks-list {
+    margin-top: 12px;
+    display: none;
+    border-top: 1px solid #222;
+    padding-top: 12px;
+  }
+
+  .chunk {
+    font-size: 12px;
+    color: #555;
+    line-height: 1.6;
+    padding: 6px 0;
+    border-bottom: 1px solid #1a1a1a;
+  }
+
+  .chunk:last-child { border-bottom: none; }
+
+  .loading {
+    color: #555;
+    font-size: 14px;
+    padding: 20px 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid #333;
+    border-top-color: #666;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Diary view ── */
+  #diary-view {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+  }
+
+  .diary-sidebar {
+    width: 200px;
+    border-right: 1px solid #222;
+    overflow-y: auto;
+    padding: 16px 0;
+    flex-shrink: 0;
+  }
+
+  .diary-sidebar h3 {
+    font-size: 11px;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    padding: 0 16px 10px;
+  }
+
+  .diary-entry-item {
+    padding: 8px 16px 8px 16px;
+    font-size: 13px;
+    color: #666;
+    cursor: pointer;
+    transition: all 0.1s;
+    border-left: 2px solid transparent;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+  }
+
+  .diary-entry-item:hover { color: #ccc; background: #161616; }
+  .diary-entry-item.active { color: #fff; border-left-color: #555; background: #1a1a1a; }
+
+  .diary-entry-item .delete-btn {
+    background: none;
+    border: none;
+    color: transparent;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 2px;
+    border-radius: 3px;
+    transition: color 0.1s, background 0.1s;
+    flex-shrink: 0;
+  }
+
+  .diary-entry-item:hover .delete-btn { color: #555; }
+  .diary-entry-item .delete-btn:hover { color: #c44 !important; background: #2a1515; }
+
+  .diary-entry-item.confirming { background: #1a1010 !important; border-left-color: #c44 !important; }
+  .diary-entry-item.confirming .entry-label { color: #c44; font-size: 12px; }
+  .confirm-actions { display: flex; gap: 6px; flex-shrink: 0; }
+  .confirm-yes {
+    background: #c44;
+    border: none;
+    color: #fff;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .confirm-yes:hover { background: #e44; }
+  .confirm-no {
+    background: none;
+    border: 1px solid #444;
+    color: #888;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .confirm-no:hover { border-color: #666; color: #ccc; }
+
+  .diary-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 32px 40px;
+    max-width: 700px;
+  }
+
+  .diary-content h1 { font-size: 22px; color: #fff; margin-bottom: 20px; }
+  .diary-content p { font-size: 14px; line-height: 1.8; color: #b0b0b0; margin-bottom: 14px; }
+  .diary-placeholder { color: #444; font-size: 14px; padding: 32px 40px; }
+
+  .timeline-toggle {
+    background: none;
+    border: 1px solid #2a2a2a;
+    color: #555;
+    font-size: 12px;
+    padding: 6px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    margin-top: 24px;
+    display: block;
+    transition: all 0.15s;
+  }
+
+  .timeline-toggle:hover { border-color: #444; color: #999; }
+
+  .timeline-section {
+    margin-top: 12px;
+    border-top: 1px solid #1e1e1e;
+    padding-top: 12px;
+    display: none;
+  }
+
+  .timeline-row {
+    display: flex;
+    gap: 12px;
+    padding: 5px 0;
+    border-bottom: 1px solid #161616;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .timeline-row:last-child { border-bottom: none; }
+
+  .timeline-time {
+    color: #555;
+    white-space: nowrap;
+    flex-shrink: 0;
+    width: 80px;
+  }
+
+  .timeline-apps {
+    color: #666;
+    white-space: nowrap;
+    flex-shrink: 0;
+    width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .timeline-text { color: #444; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>⬡ Blackbox</h1>
+  <nav>
+    <button class="active" onclick="showView('search', this)">Search</button>
+    <button onclick="showView('diary', this)">Diary</button>
+  </nav>
+</header>
+
+<main>
+  <!-- Search View -->
+  <div id="search-view">
+    <div class="search-box">
+      <input type="text" id="question" placeholder="What were you working on last Tuesday afternoon?" />
+      <input type="date" id="date-filter" class="date-input" title="Filter by date (optional)" />
+      <button id="search-btn" onclick="doSearch()">Ask</button>
+    </div>
+
+    <div class="suggestions">
+      <span class="suggestion" onclick="fillQ(this)">What did I work on yesterday?</span>
+      <span class="suggestion" onclick="fillQ(this)">When was I most productive this week?</span>
+      <span class="suggestion" onclick="fillQ(this)">How much time did I spend in VS Code today?</span>
+      <span class="suggestion" onclick="fillQ(this)">What was I doing at 3pm on Monday?</span>
+      <span class="suggestion" onclick="fillQ(this)">What were my biggest distractions this week?</span>
+    </div>
+
+    <div id="result"></div>
+  </div>
+
+  <!-- Diary View -->
+  <div id="diary-view" style="display:none">
+    <div class="diary-sidebar">
+      <h3>Entries</h3>
+      <div id="diary-list">
+        <div style="padding:16px;color:#444;font-size:13px">Loading...</div>
+      </div>
+    </div>
+    <div class="diary-content" id="diary-content">
+      <div class="diary-placeholder">Select an entry to read.</div>
+    </div>
+  </div>
+</main>
+
+<script>
+  function showView(name, btn) {
+    document.getElementById('search-view').style.display = name === 'search' ? 'flex' : 'none';
+    document.getElementById('diary-view').style.display  = name === 'diary'  ? 'flex' : 'none';
+    document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    if (name === 'diary') loadDiaryList();
+  }
+
+  function fillQ(el) {
+    document.getElementById('question').value = el.textContent;
+    document.getElementById('question').focus();
+  }
+
+  document.getElementById('question').addEventListener('keydown', e => {
+    if (e.key === 'Enter') doSearch();
+  });
+
+  async function doSearch() {
+    const q = document.getElementById('question').value.trim();
+    if (!q) return;
+
+    const dateFilter = document.getElementById('date-filter').value;
+    const btn = document.getElementById('search-btn');
+    const resultEl = document.getElementById('result');
+
+    btn.disabled = true;
+    resultEl.innerHTML = '<div class="loading"><div class="spinner"></div> Searching your logs...</div>';
+
+    try {
+      const body = { question: q };
+      if (dateFilter) body.date = dateFilter;
+
+      const res = await fetch('/api/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+
+      const chunksHtml = (data.retrieved_chunks || []).map(c =>
+        `<div class="chunk">${escHtml(c.text || '')}</div>`
+      ).join('');
+
+      const sourceBadges = (data.sources || []).map(s =>
+        `<span class="source-badge">${escHtml(s)}</span>`
+      ).join('');
+
+      resultEl.innerHTML = `
+        <div class="answer-block">
+          <div class="label">Answer</div>
+          <p>${escHtml(data.answer || 'No answer returned.')}</p>
+          ${sourceBadges ? `<div class="sources">${sourceBadges}</div>` : ''}
+          ${chunksHtml ? `
+            <button class="chunks-toggle" onclick="toggleChunks(this)">Show retrieved chunks (${data.retrieved_chunks.length})</button>
+            <div class="chunks-list">${chunksHtml}</div>
+          ` : ''}
+        </div>
+      `;
+    } catch (err) {
+      resultEl.innerHTML = `<div class="answer-block"><p style="color:#c44">Error: ${escHtml(err.message)}</p></div>`;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function toggleChunks(btn) {
+    const list = btn.nextElementSibling;
+    const open = list.style.display === 'block';
+    list.style.display = open ? 'none' : 'block';
+    btn.textContent = open
+      ? btn.textContent.replace('Hide', 'Show')
+      : btn.textContent.replace('Show', 'Hide');
+  }
+
+  async function loadDiaryList() {
+    const listEl = document.getElementById('diary-list');
+    try {
+      const res = await fetch('/api/diary');
+      const data = await res.json();
+      if (!data.entries.length) {
+        listEl.innerHTML = '<div style="padding:16px;color:#444;font-size:13px">No entries yet.</div>';
+        return;
+      }
+      listEl.innerHTML = data.entries.map(e =>
+        `<div class="diary-entry-item" onclick="loadDiaryEntry('${e}', this)">
+          <span>${e}</span>
+          <button class="delete-btn" title="Delete entry" onclick="deleteDiaryEntry(event, '${e}')">⊗</button>
+        </div>`
+      ).join('');
+    } catch (e) {
+      listEl.innerHTML = '<div style="padding:16px;color:#c44;font-size:13px">Could not load entries.</div>';
+    }
+  }
+
+  async function loadDiaryEntry(date, el) {
+    document.querySelectorAll('.diary-entry-item').forEach(i => i.classList.remove('active'));
+    el.classList.add('active');
+
+    const content = document.getElementById('diary-content');
+    content.dataset.date = date;
+    content.innerHTML = '<div class="diary-placeholder">Loading...</div>';
+
+    try {
+      const res = await fetch(`/api/diary/${date}`);
+      const data = await res.json();
+      // Render markdown-ish: convert # headers and paragraphs
+      const html = data.content
+        .split('\n')
+        .map(line => {
+          if (line.startsWith('# ')) return `<h1>${escHtml(line.slice(2))}</h1>`;
+          if (line.trim() === '') return '';
+          return `<p>${escHtml(line)}</p>`;
+        })
+        .join('');
+      content.innerHTML = (html || '<p style="color:#444">Empty entry.</p>') +
+        `<button class="timeline-toggle" onclick="toggleTimeline(this, '${date}')">View Activity Log</button>
+         <div class="timeline-section"></div>`;
+    } catch (e) {
+      content.innerHTML = '<div class="diary-placeholder" style="color:#c44">Error loading entry.</div>';
+    }
+  }
+
+  async function toggleTimeline(btn, date) {
+    const section = btn.nextElementSibling;
+    const open = section.style.display === 'block';
+    if (open) {
+      section.style.display = 'none';
+      btn.textContent = 'View Activity Log';
+      return;
+    }
+
+    btn.textContent = 'Loading...';
+    btn.disabled = true;
+
+    try {
+      const res = await fetch(`/api/diary/${date}/timeline`);
+      const data = await res.json();
+
+      if (!data.chunks.length) {
+        section.innerHTML = '<div style="color:#444;font-size:12px;padding:8px 0">No activity chunks found.</div>';
+      } else {
+        section.innerHTML = data.chunks.map(c =>
+          `<div class="timeline-row">
+            <span class="timeline-time">${escHtml(c.time.slice(11))}</span>
+            <span class="timeline-apps" title="${escHtml(c.apps.join(', '))}">${escHtml(c.apps.slice(0, 2).join(', '))}</span>
+            <span class="timeline-text">${escHtml(c.text.replace(/^\[.*?\]\s*/, ''))}</span>
+          </div>`
+        ).join('');
+      }
+
+      section.style.display = 'block';
+      btn.textContent = 'Hide Activity Log';
+    } catch (err) {
+      section.innerHTML = `<div style="color:#c44;font-size:12px;padding:8px 0">Error: ${escHtml(err.message)}</div>`;
+      section.style.display = 'block';
+      btn.textContent = 'Hide Activity Log';
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function deleteDiaryEntry(event, date) {
+    event.stopPropagation();
+    const row = event.target.closest('.diary-entry-item');
+    if (row.classList.contains('confirming')) return;
+
+    row.classList.add('confirming');
+    row.innerHTML = `
+      <span class="entry-label">Delete ${date}?</span>
+      <div class="confirm-actions">
+        <button class="confirm-no" onclick="cancelDelete(event, '${date}')">Cancel</button>
+        <button class="confirm-yes" onclick="confirmDelete(event, '${date}')">Delete</button>
+      </div>`;
+  }
+
+  function cancelDelete(event, date) {
+    event.stopPropagation();
+    loadDiaryList();
+  }
+
+  async function confirmDelete(event, date) {
+    event.stopPropagation();
+    const row = event.target.closest('.diary-entry-item');
+    row.style.opacity = '0.4';
+    row.style.pointerEvents = 'none';
+
+    try {
+      const res = await fetch(`/api/diary/${date}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const data = await res.json();
+        row.querySelector('.entry-label').textContent = `Error: ${data.error || res.statusText}`;
+        row.style.opacity = '1';
+        row.style.pointerEvents = '';
+        return;
+      }
+      const contentEl = document.getElementById('diary-content');
+      if (contentEl.dataset.date === date) {
+        contentEl.innerHTML = '<div class="diary-placeholder">Select an entry to read.</div>';
+        delete contentEl.dataset.date;
+      }
+      loadDiaryList();
+    } catch (err) {
+      row.querySelector('.entry-label').textContent = `Error: ${err.message}`;
+      row.style.opacity = '1';
+      row.style.pointerEvents = '';
+    }
+  }
+
+  function escHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+</script>
+</body>
+</html>
