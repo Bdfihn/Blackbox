@@ -68,13 +68,12 @@ def parse_knowledge_db(backup, target_date: datetime) -> list[dict]:
     tmpdir = tempfile.mkdtemp()
     try:
         result  = backup.getFileDecryptedCopy(
-            fileRelativePath="Library/CoreDuet/Knowledge/knowledgeC.db",
-            domain="HomeDomain",
+            relativePath="Library/CoreDuet/Knowledge/knowledgeC.db",
             targetFolder=tmpdir,
         )
         if not result:
             raise FileNotFoundError("getFileDecryptedCopy returned no result for knowledgeC.db")
-        db_path = result.get("fileDecryptedPath") or os.path.join(tmpdir, "knowledgeC.db")
+        db_path = result.get("decryptedFilePath") or os.path.join(tmpdir, "knowledgeC.db")
         conn    = sqlite3.connect(db_path)
         try:
             rows = conn.execute("""
@@ -121,13 +120,12 @@ def parse_health(backup, target_date: datetime) -> list[dict]:
     tmpdir = tempfile.mkdtemp()
     try:
         result  = backup.getFileDecryptedCopy(
-            fileRelativePath="Library/Application Support/com.apple.healthstore/healthdb_secure.sqlite",
-            domain="HealthDomain",
+            relativePath="Library/Application Support/com.apple.healthstore/healthdb_secure.sqlite",
             targetFolder=tmpdir,
         )
         if not result:
             raise FileNotFoundError("getFileDecryptedCopy returned no result for healthdb_secure.sqlite")
-        db_path = result.get("fileDecryptedPath") or os.path.join(tmpdir, "healthdb_secure.sqlite")
+        db_path = result.get("decryptedFilePath") or os.path.join(tmpdir, "healthdb_secure.sqlite")
         conn    = sqlite3.connect(db_path)
         records = []
         try:
