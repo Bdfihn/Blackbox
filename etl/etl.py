@@ -18,7 +18,7 @@ import ollama
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
 
-from iphone import check_backup, parse_knowledge_db, parse_health
+from iphone import check_backup, parse_knowledge_db, parse_health, day_bounds
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -272,7 +272,7 @@ def embed(text: str) -> list[float]:
     return response["embedding"]
 
 
-def upsert_chunks(chunks: list[dict]):
+def upsert_chunks(chunks: list[dict], date_str: str):
     """Embed and upsert chunks into Qdrant, skipping already-ingested ones."""
     points = []
     for chunk in chunks:
@@ -290,7 +290,7 @@ def upsert_chunks(chunks: list[dict]):
                 "apps":         chunk.get("apps", []),
                 "total_secs":   chunk.get("total_secs", 0),
                 "source":       chunk["source"],
-                "date":         chunk["window_start"][:10],
+                "date":         date_str,
             }
         )
         points.append((chunk_id, point))
@@ -318,19 +318,24 @@ def generate_diary_entry(date: str, chunks: list[dict]) -> str:
     # Build a compact timeline for the prompt
     timeline = "\n".join(c["text"] for c in chunks)
 
-    prompt = f"""You are writing a personal life and productivity diary entry for {date}.
-Below is a chronological timeline automatically logged from multiple sources: PC activity (ActivityWatch), iPhone app usage, and iPhone health data (steps, heart rate, sleep).
-Write a concise, honest diary entry (3-5 paragraphs) that:
-- Summarises what the person worked on, used their phone for, and how they felt physically (based on health data)
-- Notes any apparent focus sessions, distractions, or patterns across devices
-- Identifies the most and least productive parts of the day
-- Includes any notable health signals (sleep quality, step count, elevated heart rate)
-- Uses plain, first-person language as if the person is reflecting on their own day
+    prompt = f"""Write a concise diary entry for {date} based on the logs below. 
 
-Timeline (all sources, chronological):
-{timeline}
+- Use plain, first-person language.
+- Describe the day chronologically, grouping related tasks into a clear progression.
+- Describe what I did, not exact data points. Summarize activities and tasks, not verbatim logs. Make reasonable inferences based on provided context for what I was doing.
+- ALWAYS explicitly note important activites like when I wake up and when and I sleep. You should infer these based on activity. Use phrases like "I woke up at..." and "I went to bed at..."
+- Avoid flowery adjectives, no guessing how I felt.
+- Write only the diary entry, no preamble.
 
-Write only the diary entry, no preamble."""
+Example Output: 
+I woke up around 9:00 AM and started the day with light movement, recording about 150 steps through the late morning. My physical activity remained low and sporadic throughout the afternoon until 4:00 PM, when I logged a more consistent walk of 406 steps. I recorded my highest period of movement between 6:00 PM and 7:00 PM, totaling 1,863 steps.
+
+I began using my PC at 10:50 PM, starting with a session in a browser and an AI assistant. At 11:05 PM, I moved into the terminal to manage various containers, specifically pulling new data models and running several system updates.
+
+Through the rest of the hour, I performed several technical tasks: I executed a clean build for a data processing service, ran scripts to sync recent metrics, and renamed a local project directory. I spent the final hour of the night in a code editor and a browser, refining some scripts and reviewing the updated system interface. I finished working and prepared for sleep shortly after 12:00 AM.
+
+Timeline:
+{timeline}"""
 
     response = ollama_client.chat(
         model=SUMMARY_MODEL,
@@ -360,8 +365,7 @@ def run_etl(target_date: datetime | None = None):
     ensure_collection()
     ensure_db()
 
-    start = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
-    end   = start + timedelta(days=1)
+    start, end = day_bounds(target_date)
 
     all_chunks = []
 
@@ -412,7 +416,7 @@ def run_etl(target_date: datetime | None = None):
     all_chunks.sort(key=lambda c: c["window_start"])
 
     # Upsert to Qdrant
-    upsert_chunks(all_chunks)
+    upsert_chunks(all_chunks, date_str)
 
     # Generate and write diary
     log.info("Generating diary entry...")

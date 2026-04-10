@@ -17,8 +17,15 @@ import tempfile
 import zoneinfo
 from datetime import datetime, timedelta, timezone
 
-LOCAL_TZ    = zoneinfo.ZoneInfo(os.getenv("TIMEZONE", "America/New_York"))
-APPLE_EPOCH = datetime(2001, 1, 1, tzinfo=timezone.utc)
+LOCAL_TZ       = zoneinfo.ZoneInfo(os.getenv("TIMEZONE", "America/New_York"))
+APPLE_EPOCH    = datetime(2001, 1, 1, tzinfo=timezone.utc)
+DAY_START_HOUR = 4  # Days run 04:00 → next day 04:00
+
+
+def day_bounds(date: datetime) -> tuple[datetime, datetime]:
+    """Return (start, end) for a logical day: date @ 04:00 → next day @ 04:00."""
+    start = date.replace(hour=DAY_START_HOUR, minute=0, second=0, microsecond=0)
+    return start, start + timedelta(days=1)
 
 # healthdb_secure.sqlite data_type constants (observed iOS 16-17; verify via Manifest if needed)
 _STEPS_TYPE = 7   # HKQuantityTypeIdentifierStepCount
@@ -62,17 +69,20 @@ def parse_knowledge_db(backup, target_date: datetime) -> list[dict]:
     Returns:
         List of {timestamp (LOCAL_TZ datetime), app_bundle_id, duration_secs}.
     """
-    start_local = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
-    end_local   = start_local + timedelta(days=1)
+    start_local, end_local = day_bounds(target_date)
 
     tmpdir = tempfile.mkdtemp()
     try:
-        result  = backup.getFileDecryptedCopy(
-            relativePath="Library/CoreDuet/Knowledge/knowledgeC.db",
-            targetFolder=tmpdir,
-        )
+        try:
+            result = backup.getFileDecryptedCopy(
+                relativePath="Library/CoreDuet/Knowledge/knowledgeC.db",
+                targetFolder=tmpdir,
+            )
+        except Exception:
+            # knowledgeC.db is not included in standard iTunes/Finder backups
+            return []
         if not result:
-            raise FileNotFoundError("getFileDecryptedCopy returned no result for knowledgeC.db")
+            return []
         db_path = result.get("decryptedFilePath") or os.path.join(tmpdir, "knowledgeC.db")
         conn    = sqlite3.connect(db_path)
         try:
@@ -114,13 +124,12 @@ def parse_health(backup, target_date: datetime) -> list[dict]:
                  value (float), unit (str)}.
         For 'sleep', value is duration in seconds (end_date − start_date).
     """
-    start_local = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
-    end_local   = start_local + timedelta(days=1)
+    start_local, end_local = day_bounds(target_date)
 
     tmpdir = tempfile.mkdtemp()
     try:
         result  = backup.getFileDecryptedCopy(
-            relativePath="Library/Application Support/com.apple.healthstore/healthdb_secure.sqlite",
+            relativePath="Health/healthdb_secure.sqlite",
             targetFolder=tmpdir,
         )
         if not result:
