@@ -235,3 +235,98 @@ def test_parse_knowledge_db_timestamp_is_local_tz():
         assert ts.tzinfo is not None
     finally:
         os.unlink(db_path)
+
+
+# ── parse_health tests ────────────────────────────────────────────────────────
+
+def test_parse_health_returns_steps():
+    """Steps rows on target_date are returned with type='steps'."""
+    start = make_apple_ts(datetime(2026, 4, 9, 14, 0, 0, tzinfo=timezone.utc))  # 10 AM ET
+
+    db_path = make_health_db(
+        step_rows=[(start, 847.0)],
+        hr_rows=[],
+        sleep_rows=[],
+    )
+    try:
+        records = parse_health(mock_backup(db_path), TARGET_DATE)
+        steps = [r for r in records if r["type"] == "steps"]
+        assert len(steps) == 1
+        assert steps[0]["value"] == 847.0
+        assert steps[0]["unit"] == "count"
+    finally:
+        os.unlink(db_path)
+
+
+def test_parse_health_returns_heart_rate():
+    """HR rows on target_date are returned with type='heart_rate'."""
+    start = make_apple_ts(datetime(2026, 4, 9, 15, 0, 0, tzinfo=timezone.utc))  # 11 AM ET
+
+    db_path = make_health_db(
+        step_rows=[],
+        hr_rows=[(start, 72.0)],
+        sleep_rows=[],
+    )
+    try:
+        records = parse_health(mock_backup(db_path), TARGET_DATE)
+        hr = [r for r in records if r["type"] == "heart_rate"]
+        assert len(hr) == 1
+        assert hr[0]["value"] == 72.0
+        assert hr[0]["unit"] == "count/min"
+    finally:
+        os.unlink(db_path)
+
+
+def test_parse_health_returns_sleep_with_duration():
+    """Sleep rows return duration in seconds (end_ts - start_ts)."""
+    start = make_apple_ts(datetime(2026, 4, 9, 4, 0, 0, tzinfo=timezone.utc))   # midnight ET
+    end   = make_apple_ts(datetime(2026, 4, 9, 11, 0, 0, tzinfo=timezone.utc))  # 7 AM ET
+
+    db_path = make_health_db(
+        step_rows=[],
+        hr_rows=[],
+        sleep_rows=[(start, end, 1)],
+    )
+    try:
+        records = parse_health(mock_backup(db_path), TARGET_DATE)
+        sleep = [r for r in records if r["type"] == "sleep"]
+        assert len(sleep) == 1
+        assert abs(sleep[0]["value"] - 7 * 3600) < 1
+        assert sleep[0]["unit"] == "sec"
+    finally:
+        os.unlink(db_path)
+
+
+def test_parse_health_excludes_other_dates():
+    """Records outside the target date window are excluded."""
+    start = make_apple_ts(datetime(2026, 4, 10, 14, 0, 0, tzinfo=timezone.utc))  # next day
+
+    db_path = make_health_db(
+        step_rows=[(start, 500.0)],
+        hr_rows=[],
+        sleep_rows=[],
+    )
+    try:
+        records = parse_health(mock_backup(db_path), TARGET_DATE)
+        assert records == []
+    finally:
+        os.unlink(db_path)
+
+
+def test_parse_health_timestamp_is_local_tz():
+    """Returned timestamps are LOCAL_TZ-aware with correct hour."""
+    start = make_apple_ts(datetime(2026, 4, 9, 14, 0, 0, tzinfo=timezone.utc))  # 10 AM ET
+
+    db_path = make_health_db(
+        step_rows=[(start, 100.0)],
+        hr_rows=[],
+        sleep_rows=[],
+    )
+    try:
+        records = parse_health(mock_backup(db_path), TARGET_DATE)
+        ts = records[0]["timestamp"]
+        expected = datetime(2026, 4, 9, 10, 0, 0, tzinfo=LOCAL_TZ)
+        assert ts == expected  # 14:00 UTC → 10:00 EDT (UTC-4)
+        assert ts.tzinfo is not None
+    finally:
+        os.unlink(db_path)
