@@ -312,16 +312,23 @@
   }
   .confirm-no:hover { border-color: #666; color: #ccc; }
 
+  /* diary-main holds the text pane + activity panel side by side */
+  .diary-main {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+  }
+
   .diary-content {
     flex: 1;
     overflow-y: auto;
-    padding: 32px 40px;
-    max-width: 700px;
+    padding: 40px 48px;
+    scrollbar-gutter: stable;
   }
 
   .diary-content h1 { font-size: 22px; color: #fff; margin-bottom: 20px; }
   .diary-content p { font-size: 14px; line-height: 1.8; color: #b0b0b0; margin-bottom: 14px; }
-  .diary-placeholder { color: #444; font-size: 14px; padding: 32px 40px; }
+  .diary-placeholder { color: #444; font-size: 14px; }
 
   .timeline-toggle {
     background: none;
@@ -332,22 +339,35 @@
     border-radius: 6px;
     cursor: pointer;
     margin-top: 24px;
-    display: block;
+    display: inline-block;
     transition: all 0.15s;
   }
 
   .timeline-toggle:hover { border-color: #444; color: #999; }
 
-  .timeline-section {
-    margin-top: 12px;
-    border-top: 1px solid #1e1e1e;
-    padding-top: 12px;
+  /* activity panel: right column, hidden until toggled */
+  #activity-panel {
+    width: 420px;
+    flex-shrink: 0;
+    border-left: 1px solid #222;
+    overflow-y: auto;
+    padding: 20px 20px 20px 20px;
     display: none;
+    scrollbar-gutter: stable;
+  }
+
+  #activity-panel h4 {
+    font-size: 11px;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 12px;
   }
 
   .timeline-row {
-    display: flex;
-    gap: 12px;
+    display: grid;
+    grid-template-columns: 52px 100px 1fr;
+    gap: 10px;
     padding: 5px 0;
     border-bottom: 1px solid #161616;
     font-size: 12px;
@@ -359,15 +379,11 @@
   .timeline-time {
     color: #555;
     white-space: nowrap;
-    flex-shrink: 0;
-    width: 80px;
   }
 
   .timeline-apps {
     color: #666;
     white-space: nowrap;
-    flex-shrink: 0;
-    width: 120px;
     overflow: hidden;
     text-overflow: ellipsis;
   }
@@ -413,8 +429,14 @@
         <div style="padding:16px;color:#444;font-size:13px">Loading...</div>
       </div>
     </div>
-    <div class="diary-content" id="diary-content">
-      <div class="diary-placeholder">Select an entry to read.</div>
+    <div class="diary-main">
+      <div class="diary-content" id="diary-content">
+        <div class="diary-placeholder">Select an entry to read.</div>
+      </div>
+      <div id="activity-panel">
+        <h4>Activity Log</h4>
+        <div id="activity-rows"></div>
+      </div>
     </div>
   </div>
 </main>
@@ -534,20 +556,29 @@
           return `<p>${escHtml(line)}</p>`;
         })
         .join('');
+      // close activity panel when switching entries
+      closeActivityPanel();
       content.innerHTML = (html || '<p style="color:#444">Empty entry.</p>') +
-        `<button class="timeline-toggle" onclick="toggleTimeline(this, '${date}')">View Activity Log</button>
-         <div class="timeline-section"></div>`;
+        `<button class="timeline-toggle" id="timeline-toggle-btn" onclick="toggleTimeline('${date}')">View Activity Log</button>`;
     } catch (e) {
       content.innerHTML = '<div class="diary-placeholder" style="color:#c44">Error loading entry.</div>';
     }
   }
 
-  async function toggleTimeline(btn, date) {
-    const section = btn.nextElementSibling;
-    const open = section.style.display === 'block';
-    if (open) {
-      section.style.display = 'none';
-      btn.textContent = 'View Activity Log';
+  function closeActivityPanel() {
+    const panel = document.getElementById('activity-panel');
+    panel.style.display = 'none';
+    document.getElementById('activity-rows').innerHTML = '';
+    const btn = document.getElementById('timeline-toggle-btn');
+    if (btn) btn.textContent = 'View Activity Log';
+  }
+
+  async function toggleTimeline(date) {
+    const panel = document.getElementById('activity-panel');
+    const btn = document.getElementById('timeline-toggle-btn');
+
+    if (panel.style.display === 'flex' || panel.style.display === 'block') {
+      closeActivityPanel();
       return;
     }
 
@@ -557,24 +588,26 @@
     try {
       const res = await fetch(`/api/diary/${date}/timeline`);
       const data = await res.json();
+      const rowsEl = document.getElementById('activity-rows');
 
       if (!data.chunks.length) {
-        section.innerHTML = '<div style="color:#444;font-size:12px;padding:8px 0">No activity chunks found.</div>';
+        rowsEl.innerHTML = '<div style="color:#444;font-size:12px;padding:8px 0">No activity chunks found.</div>';
       } else {
-        section.innerHTML = data.chunks.map(c =>
+        rowsEl.innerHTML = data.chunks.map(c =>
           `<div class="timeline-row">
-            <span class="timeline-time">${escHtml(c.time.slice(11))}</span>
+            <span class="timeline-time">${escHtml(c.time.slice(11, 16))}</span>
             <span class="timeline-apps" title="${escHtml(c.apps.join(', '))}">${escHtml(c.apps.slice(0, 2).join(', '))}</span>
             <span class="timeline-text">${escHtml(c.text.replace(/^\[.*?\]\s*/, ''))}</span>
           </div>`
         ).join('');
       }
 
-      section.style.display = 'block';
+      panel.style.display = 'block';
       btn.textContent = 'Hide Activity Log';
     } catch (err) {
-      section.innerHTML = `<div style="color:#c44;font-size:12px;padding:8px 0">Error: ${escHtml(err.message)}</div>`;
-      section.style.display = 'block';
+      document.getElementById('activity-rows').innerHTML =
+        `<div style="color:#c44;font-size:12px;padding:8px 0">Error: ${escHtml(err.message)}</div>`;
+      panel.style.display = 'block';
       btn.textContent = 'Hide Activity Log';
     } finally {
       btn.disabled = false;
