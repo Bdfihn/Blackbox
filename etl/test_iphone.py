@@ -25,7 +25,8 @@ def make_knowledge_db(rows: list[tuple]) -> str:
     Each row is (bundle_id, stream_name, start_apple_ts, end_apple_ts).
     Returns path to the temp file (caller must delete).
     """
-    path = tempfile.mktemp(suffix=".db")
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        path = f.name
     conn = sqlite3.connect(path)
     conn.execute("""
         CREATE TABLE ZOBJECT (
@@ -48,7 +49,8 @@ def make_health_db(step_rows, hr_rows, sleep_rows) -> str:
     sleep_rows: list of (start_apple_ts, end_apple_ts, category_value)
     Returns path (caller must delete).
     """
-    path = tempfile.mktemp(suffix=".db")
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        path = f.name
     conn = sqlite3.connect(path)
     conn.executescript("""
         CREATE TABLE samples (
@@ -142,3 +144,91 @@ def test_check_backup_falls_back_to_second_path(monkeypatch, tmp_path):
     result = check_backup()
     assert result is not None
     assert result[1] == "DDEEFF334455"
+
+
+# ── parse_knowledge_db tests ──────────────────────────────────────────────────
+
+TARGET_DATE = datetime(2026, 4, 9, tzinfo=LOCAL_TZ)  # 2026-04-09 in ET
+
+
+def test_parse_knowledge_db_returns_foreground_events():
+    """Rows with /app/inFocus and com.* bundle IDs on target_date are returned."""
+    # 10:00 AM ET on 2026-04-09 = 14:00 UTC
+    start = make_apple_ts(datetime(2026, 4, 9, 14, 0, 0, tzinfo=timezone.utc))
+    end   = make_apple_ts(datetime(2026, 4, 9, 14, 5, 0, tzinfo=timezone.utc))
+
+    db_path = make_knowledge_db([
+        ("com.apple.MobileSafari", "/app/inFocus", start, end),
+    ])
+    try:
+        events = parse_knowledge_db(mock_backup(db_path), TARGET_DATE)
+        assert len(events) == 1
+        assert events[0]["app_bundle_id"] == "com.apple.MobileSafari"
+        assert abs(events[0]["duration_secs"] - 300.0) < 1
+        assert events[0]["timestamp"].tzinfo is not None
+    finally:
+        os.unlink(db_path)
+
+
+def test_parse_knowledge_db_excludes_background_stream():
+    """Rows with a stream other than /app/inFocus are excluded."""
+    start = make_apple_ts(datetime(2026, 4, 9, 14, 0, 0, tzinfo=timezone.utc))
+    end   = make_apple_ts(datetime(2026, 4, 9, 14, 5, 0, tzinfo=timezone.utc))
+
+    db_path = make_knowledge_db([
+        ("com.apple.MobileSafari", "/app/inBackground", start, end),
+    ])
+    try:
+        events = parse_knowledge_db(mock_backup(db_path), TARGET_DATE)
+        assert events == []
+    finally:
+        os.unlink(db_path)
+
+
+def test_parse_knowledge_db_excludes_non_com_bundles():
+    """Bundle IDs not starting with 'com.' are excluded."""
+    start = make_apple_ts(datetime(2026, 4, 9, 14, 0, 0, tzinfo=timezone.utc))
+    end   = make_apple_ts(datetime(2026, 4, 9, 14, 5, 0, tzinfo=timezone.utc))
+
+    db_path = make_knowledge_db([
+        ("apple.MobileSafari", "/app/inFocus", start, end),
+    ])
+    try:
+        events = parse_knowledge_db(mock_backup(db_path), TARGET_DATE)
+        assert events == []
+    finally:
+        os.unlink(db_path)
+
+
+def test_parse_knowledge_db_excludes_other_dates():
+    """Events outside the target date window are excluded."""
+    # The next day
+    start = make_apple_ts(datetime(2026, 4, 10, 14, 0, 0, tzinfo=timezone.utc))
+    end   = make_apple_ts(datetime(2026, 4, 10, 14, 5, 0, tzinfo=timezone.utc))
+
+    db_path = make_knowledge_db([
+        ("com.apple.MobileSafari", "/app/inFocus", start, end),
+    ])
+    try:
+        events = parse_knowledge_db(mock_backup(db_path), TARGET_DATE)
+        assert events == []
+    finally:
+        os.unlink(db_path)
+
+
+def test_parse_knowledge_db_timestamp_is_local_tz():
+    """Returned timestamps are in LOCAL_TZ, not UTC."""
+    # 14:00 UTC = 10:00 ET
+    start = make_apple_ts(datetime(2026, 4, 9, 14, 0, 0, tzinfo=timezone.utc))
+    end   = make_apple_ts(datetime(2026, 4, 9, 14, 5, 0, tzinfo=timezone.utc))
+
+    db_path = make_knowledge_db([
+        ("com.instagram.Instagram", "/app/inFocus", start, end),
+    ])
+    try:
+        events = parse_knowledge_db(mock_backup(db_path), TARGET_DATE)
+        ts = events[0]["timestamp"]
+        assert ts.hour == 10  # 14:00 UTC → 10:00 ET
+        assert ts.tzinfo is not None
+    finally:
+        os.unlink(db_path)
