@@ -279,8 +279,8 @@ def test_parse_health_returns_heart_rate():
 
 def test_parse_health_returns_sleep_with_duration():
     """Sleep rows return duration in seconds (end_ts - start_ts)."""
-    start = make_apple_ts(datetime(2026, 4, 9, 4, 0, 0, tzinfo=timezone.utc))   # midnight ET
-    end   = make_apple_ts(datetime(2026, 4, 9, 11, 0, 0, tzinfo=timezone.utc))  # 7 AM ET
+    start = make_apple_ts(datetime(2026, 4, 9, 4, 0, 0, tzinfo=timezone.utc))   # midnight EDT (UTC-4)
+    end   = make_apple_ts(datetime(2026, 4, 9, 11, 0, 0, tzinfo=timezone.utc))  # 7 AM EDT (UTC-4)
 
     db_path = make_health_db(
         step_rows=[],
@@ -324,6 +324,7 @@ def test_parse_health_timestamp_is_local_tz():
     )
     try:
         records = parse_health(mock_backup(db_path), TARGET_DATE)
+        assert len(records) == 1
         ts = records[0]["timestamp"]
         expected = datetime(2026, 4, 9, 10, 0, 0, tzinfo=LOCAL_TZ)
         assert ts == expected  # 14:00 UTC → 10:00 EDT (UTC-4)
