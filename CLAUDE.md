@@ -8,7 +8,7 @@
 
 ## Git Workflow
 - After every meaningful change, commit and push. Don't let work pile up uncommitted.
-- Never commit broken code — one commit per completed task that the user has verified as completed. Before comitting, ask the user to test the feature you built. 
+- Never commit broken code — one commit per completed task. 
 - Check for committed code before starting any new plan.
 - Always use `git add .` instead of staging individual files. If there was an unexpected change, understand it and write the commit message accordingly.
 
