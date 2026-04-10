@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from iphone import check_backup, parse_knowledge_db, parse_health
+from sources.base import day_bounds
 
 LOCAL_TZ = zoneinfo.ZoneInfo("America/New_York")
 APPLE_EPOCH = datetime(2001, 1, 1, tzinfo=timezone.utc)
@@ -89,7 +90,7 @@ def make_health_db(step_rows, hr_rows, sleep_rows) -> str:
 def mock_backup(db_path: str) -> MagicMock:
     """Return a mock iOSbackup object whose getFileDecryptedCopy returns db_path."""
     m = MagicMock()
-    m.getFileDecryptedCopy.return_value = {"fileDecryptedPath": db_path}
+    m.getFileDecryptedCopy.return_value = {"decryptedFilePath": db_path}
     return m
 
 
@@ -149,6 +150,7 @@ def test_check_backup_falls_back_to_second_path(monkeypatch, tmp_path):
 # ── parse_knowledge_db tests ──────────────────────────────────────────────────
 
 TARGET_DATE = datetime(2026, 4, 9, tzinfo=LOCAL_TZ)  # 2026-04-09 in ET
+START, END  = day_bounds(TARGET_DATE)                 # 04:00 ET Apr 9 → 04:00 ET Apr 10
 
 
 def test_parse_knowledge_db_returns_foreground_events():
@@ -161,7 +163,7 @@ def test_parse_knowledge_db_returns_foreground_events():
         ("com.apple.MobileSafari", "/app/inFocus", start, end),
     ])
     try:
-        events = parse_knowledge_db(mock_backup(db_path), TARGET_DATE)
+        events = parse_knowledge_db(mock_backup(db_path), START, END)
         assert len(events) == 1
         assert events[0]["app_bundle_id"] == "com.apple.MobileSafari"
         assert abs(events[0]["duration_secs"] - 300.0) < 1
@@ -181,7 +183,7 @@ def test_parse_knowledge_db_excludes_background_stream():
         ("com.apple.MobileSafari", "/app/inBackground", start, end),
     ])
     try:
-        events = parse_knowledge_db(mock_backup(db_path), TARGET_DATE)
+        events = parse_knowledge_db(mock_backup(db_path), START, END)
         assert events == []
     finally:
         os.unlink(db_path)
@@ -196,15 +198,15 @@ def test_parse_knowledge_db_excludes_non_com_bundles():
         ("apple.MobileSafari", "/app/inFocus", start, end),
     ])
     try:
-        events = parse_knowledge_db(mock_backup(db_path), TARGET_DATE)
+        events = parse_knowledge_db(mock_backup(db_path), START, END)
         assert events == []
     finally:
         os.unlink(db_path)
 
 
 def test_parse_knowledge_db_excludes_other_dates():
-    """Events outside the target date window are excluded."""
-    # The next day
+    """Events outside the day window are excluded."""
+    # 10 AM ET on Apr 10 — after the 04:00 Apr 10 cutoff
     start = make_apple_ts(datetime(2026, 4, 10, 14, 0, 0, tzinfo=timezone.utc))
     end   = make_apple_ts(datetime(2026, 4, 10, 14, 5, 0, tzinfo=timezone.utc))
 
@@ -212,7 +214,7 @@ def test_parse_knowledge_db_excludes_other_dates():
         ("com.apple.MobileSafari", "/app/inFocus", start, end),
     ])
     try:
-        events = parse_knowledge_db(mock_backup(db_path), TARGET_DATE)
+        events = parse_knowledge_db(mock_backup(db_path), START, END)
         assert events == []
     finally:
         os.unlink(db_path)
@@ -228,7 +230,7 @@ def test_parse_knowledge_db_timestamp_is_local_tz():
         ("com.instagram.Instagram", "/app/inFocus", start, end),
     ])
     try:
-        events = parse_knowledge_db(mock_backup(db_path), TARGET_DATE)
+        events = parse_knowledge_db(mock_backup(db_path), START, END)
         ts = events[0]["timestamp"]
         expected = datetime(2026, 4, 9, 10, 0, 0, tzinfo=LOCAL_TZ)
         assert ts == expected  # 14:00 UTC → 10:00 EDT (UTC-4)
@@ -249,7 +251,7 @@ def test_parse_health_returns_steps():
         sleep_rows=[],
     )
     try:
-        records = parse_health(mock_backup(db_path), TARGET_DATE)
+        records = parse_health(mock_backup(db_path), START, END)
         steps = [r for r in records if r["type"] == "steps"]
         assert len(steps) == 1
         assert steps[0]["value"] == 847.0
@@ -268,7 +270,7 @@ def test_parse_health_returns_heart_rate():
         sleep_rows=[],
     )
     try:
-        records = parse_health(mock_backup(db_path), TARGET_DATE)
+        records = parse_health(mock_backup(db_path), START, END)
         hr = [r for r in records if r["type"] == "heart_rate"]
         assert len(hr) == 1
         assert hr[0]["value"] == 72.0
@@ -279,8 +281,9 @@ def test_parse_health_returns_heart_rate():
 
 def test_parse_health_returns_sleep_with_duration():
     """Sleep rows return duration in seconds (end_ts - start_ts)."""
-    start = make_apple_ts(datetime(2026, 4, 9, 4, 0, 0, tzinfo=timezone.utc))   # midnight EDT (UTC-4)
-    end   = make_apple_ts(datetime(2026, 4, 9, 11, 0, 0, tzinfo=timezone.utc))  # 7 AM EDT (UTC-4)
+    # 11 PM ET Apr 9 = 03:00 UTC Apr 10 — within the 04:00 Apr 9 → 04:00 Apr 10 window
+    start = make_apple_ts(datetime(2026, 4, 10, 3, 0, 0, tzinfo=timezone.utc))
+    end   = make_apple_ts(datetime(2026, 4, 10, 10, 0, 0, tzinfo=timezone.utc))  # 6 AM ET Apr 10
 
     db_path = make_health_db(
         step_rows=[],
@@ -288,7 +291,7 @@ def test_parse_health_returns_sleep_with_duration():
         sleep_rows=[(start, end, 1)],
     )
     try:
-        records = parse_health(mock_backup(db_path), TARGET_DATE)
+        records = parse_health(mock_backup(db_path), START, END)
         sleep = [r for r in records if r["type"] == "sleep"]
         assert len(sleep) == 1
         assert abs(sleep[0]["value"] - 7 * 3600) < 1
@@ -298,8 +301,9 @@ def test_parse_health_returns_sleep_with_duration():
 
 
 def test_parse_health_excludes_other_dates():
-    """Records outside the target date window are excluded."""
-    start = make_apple_ts(datetime(2026, 4, 10, 14, 0, 0, tzinfo=timezone.utc))  # next day
+    """Records outside the day window are excluded."""
+    # 10 AM ET on Apr 10 — after the 04:00 Apr 10 cutoff
+    start = make_apple_ts(datetime(2026, 4, 10, 14, 0, 0, tzinfo=timezone.utc))
 
     db_path = make_health_db(
         step_rows=[(start, 500.0)],
@@ -307,7 +311,7 @@ def test_parse_health_excludes_other_dates():
         sleep_rows=[],
     )
     try:
-        records = parse_health(mock_backup(db_path), TARGET_DATE)
+        records = parse_health(mock_backup(db_path), START, END)
         assert records == []
     finally:
         os.unlink(db_path)
@@ -323,7 +327,7 @@ def test_parse_health_timestamp_is_local_tz():
         sleep_rows=[],
     )
     try:
-        records = parse_health(mock_backup(db_path), TARGET_DATE)
+        records = parse_health(mock_backup(db_path), START, END)
         assert len(records) == 1
         ts = records[0]["timestamp"]
         expected = datetime(2026, 4, 9, 10, 0, 0, tzinfo=LOCAL_TZ)
