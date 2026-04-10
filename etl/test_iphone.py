@@ -166,6 +166,8 @@ def test_parse_knowledge_db_returns_foreground_events():
         assert events[0]["app_bundle_id"] == "com.apple.MobileSafari"
         assert abs(events[0]["duration_secs"] - 300.0) < 1
         assert events[0]["timestamp"].tzinfo is not None
+        expected_ts = datetime(2026, 4, 9, 10, 0, 0, tzinfo=LOCAL_TZ)
+        assert events[0]["timestamp"] == expected_ts
     finally:
         os.unlink(db_path)
 
@@ -228,7 +230,8 @@ def test_parse_knowledge_db_timestamp_is_local_tz():
     try:
         events = parse_knowledge_db(mock_backup(db_path), TARGET_DATE)
         ts = events[0]["timestamp"]
-        assert ts.hour == 10  # 14:00 UTC → 10:00 ET
+        expected = datetime(2026, 4, 9, 10, 0, 0, tzinfo=LOCAL_TZ)
+        assert ts == expected  # 14:00 UTC → 10:00 EDT (UTC-4)
         assert ts.tzinfo is not None
     finally:
         os.unlink(db_path)
