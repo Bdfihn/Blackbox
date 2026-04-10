@@ -4,11 +4,11 @@ import shutil
 import tempfile
 import zoneinfo
 from datetime import datetime, timezone, timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
-from iphone import check_backup, parse_knowledge_db, parse_health
+from sources.iphone import check_backup, parse_health
 from sources.base import day_bounds
 
 LOCAL_TZ = zoneinfo.ZoneInfo("America/New_York")
@@ -18,29 +18,6 @@ APPLE_EPOCH = datetime(2001, 1, 1, tzinfo=timezone.utc)
 def make_apple_ts(dt: datetime) -> float:
     """Convert a tz-aware datetime to an Apple CoreData float timestamp."""
     return (dt.astimezone(timezone.utc) - APPLE_EPOCH).total_seconds()
-
-
-def make_knowledge_db(rows: list[tuple]) -> str:
-    """Create a temp SQLite knowledgeC.db with ZOBJECT rows.
-
-    Each row is (bundle_id, stream_name, start_apple_ts, end_apple_ts).
-    Returns path to the temp file (caller must delete).
-    """
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-        path = f.name
-    conn = sqlite3.connect(path)
-    conn.execute("""
-        CREATE TABLE ZOBJECT (
-            ZBUNDLEID    TEXT,
-            ZSTREAMNAME  TEXT,
-            ZSTARTDATE   REAL,
-            ZENDDATE     REAL
-        )
-    """)
-    conn.executemany("INSERT INTO ZOBJECT VALUES (?, ?, ?, ?)", rows)
-    conn.commit()
-    conn.close()
-    return path
 
 
 def make_health_db(step_rows, hr_rows, sleep_rows) -> str:
@@ -147,99 +124,11 @@ def test_check_backup_falls_back_to_second_path(monkeypatch, tmp_path):
     assert result[1] == "DDEEFF334455"
 
 
-# ── parse_knowledge_db tests ──────────────────────────────────────────────────
+# ── parse_health tests ────────────────────────────────────────────────────────
 
 TARGET_DATE = datetime(2026, 4, 9, tzinfo=LOCAL_TZ)  # 2026-04-09 in ET
 START, END  = day_bounds(TARGET_DATE)                 # 04:00 ET Apr 9 → 04:00 ET Apr 10
 
-
-def test_parse_knowledge_db_returns_foreground_events():
-    """Rows with /app/inFocus and com.* bundle IDs on target_date are returned."""
-    # 10:00 AM ET on 2026-04-09 = 14:00 UTC
-    start = make_apple_ts(datetime(2026, 4, 9, 14, 0, 0, tzinfo=timezone.utc))
-    end   = make_apple_ts(datetime(2026, 4, 9, 14, 5, 0, tzinfo=timezone.utc))
-
-    db_path = make_knowledge_db([
-        ("com.apple.MobileSafari", "/app/inFocus", start, end),
-    ])
-    try:
-        events = parse_knowledge_db(mock_backup(db_path), START, END)
-        assert len(events) == 1
-        assert events[0]["app_bundle_id"] == "com.apple.MobileSafari"
-        assert abs(events[0]["duration_secs"] - 300.0) < 1
-        assert events[0]["timestamp"].tzinfo is not None
-        expected_ts = datetime(2026, 4, 9, 10, 0, 0, tzinfo=LOCAL_TZ)
-        assert events[0]["timestamp"] == expected_ts
-    finally:
-        os.unlink(db_path)
-
-
-def test_parse_knowledge_db_excludes_background_stream():
-    """Rows with a stream other than /app/inFocus are excluded."""
-    start = make_apple_ts(datetime(2026, 4, 9, 14, 0, 0, tzinfo=timezone.utc))
-    end   = make_apple_ts(datetime(2026, 4, 9, 14, 5, 0, tzinfo=timezone.utc))
-
-    db_path = make_knowledge_db([
-        ("com.apple.MobileSafari", "/app/inBackground", start, end),
-    ])
-    try:
-        events = parse_knowledge_db(mock_backup(db_path), START, END)
-        assert events == []
-    finally:
-        os.unlink(db_path)
-
-
-def test_parse_knowledge_db_excludes_non_com_bundles():
-    """Bundle IDs not starting with 'com.' are excluded."""
-    start = make_apple_ts(datetime(2026, 4, 9, 14, 0, 0, tzinfo=timezone.utc))
-    end   = make_apple_ts(datetime(2026, 4, 9, 14, 5, 0, tzinfo=timezone.utc))
-
-    db_path = make_knowledge_db([
-        ("apple.MobileSafari", "/app/inFocus", start, end),
-    ])
-    try:
-        events = parse_knowledge_db(mock_backup(db_path), START, END)
-        assert events == []
-    finally:
-        os.unlink(db_path)
-
-
-def test_parse_knowledge_db_excludes_other_dates():
-    """Events outside the day window are excluded."""
-    # 10 AM ET on Apr 10 — after the 04:00 Apr 10 cutoff
-    start = make_apple_ts(datetime(2026, 4, 10, 14, 0, 0, tzinfo=timezone.utc))
-    end   = make_apple_ts(datetime(2026, 4, 10, 14, 5, 0, tzinfo=timezone.utc))
-
-    db_path = make_knowledge_db([
-        ("com.apple.MobileSafari", "/app/inFocus", start, end),
-    ])
-    try:
-        events = parse_knowledge_db(mock_backup(db_path), START, END)
-        assert events == []
-    finally:
-        os.unlink(db_path)
-
-
-def test_parse_knowledge_db_timestamp_is_local_tz():
-    """Returned timestamps are in LOCAL_TZ, not UTC."""
-    # 14:00 UTC = 10:00 ET
-    start = make_apple_ts(datetime(2026, 4, 9, 14, 0, 0, tzinfo=timezone.utc))
-    end   = make_apple_ts(datetime(2026, 4, 9, 14, 5, 0, tzinfo=timezone.utc))
-
-    db_path = make_knowledge_db([
-        ("com.instagram.Instagram", "/app/inFocus", start, end),
-    ])
-    try:
-        events = parse_knowledge_db(mock_backup(db_path), START, END)
-        ts = events[0]["timestamp"]
-        expected = datetime(2026, 4, 9, 10, 0, 0, tzinfo=LOCAL_TZ)
-        assert ts == expected  # 14:00 UTC → 10:00 EDT (UTC-4)
-        assert ts.tzinfo is not None
-    finally:
-        os.unlink(db_path)
-
-
-# ── parse_health tests ────────────────────────────────────────────────────────
 
 def test_parse_health_returns_steps():
     """Steps rows on target_date are returned with type='steps'."""
@@ -251,7 +140,7 @@ def test_parse_health_returns_steps():
         sleep_rows=[],
     )
     try:
-        records = parse_health(mock_backup(db_path), START, END)
+        records = parse_health(mock_backup(db_path), START, END, LOCAL_TZ)
         steps = [r for r in records if r["type"] == "steps"]
         assert len(steps) == 1
         assert steps[0]["value"] == 847.0
@@ -270,7 +159,7 @@ def test_parse_health_returns_heart_rate():
         sleep_rows=[],
     )
     try:
-        records = parse_health(mock_backup(db_path), START, END)
+        records = parse_health(mock_backup(db_path), START, END, LOCAL_TZ)
         hr = [r for r in records if r["type"] == "heart_rate"]
         assert len(hr) == 1
         assert hr[0]["value"] == 72.0
@@ -291,7 +180,7 @@ def test_parse_health_returns_sleep_with_duration():
         sleep_rows=[(start, end, 1)],
     )
     try:
-        records = parse_health(mock_backup(db_path), START, END)
+        records = parse_health(mock_backup(db_path), START, END, LOCAL_TZ)
         sleep = [r for r in records if r["type"] == "sleep"]
         assert len(sleep) == 1
         assert abs(sleep[0]["value"] - 7 * 3600) < 1
@@ -311,7 +200,7 @@ def test_parse_health_excludes_other_dates():
         sleep_rows=[],
     )
     try:
-        records = parse_health(mock_backup(db_path), START, END)
+        records = parse_health(mock_backup(db_path), START, END, LOCAL_TZ)
         assert records == []
     finally:
         os.unlink(db_path)
@@ -327,7 +216,7 @@ def test_parse_health_timestamp_is_local_tz():
         sleep_rows=[],
     )
     try:
-        records = parse_health(mock_backup(db_path), START, END)
+        records = parse_health(mock_backup(db_path), START, END, LOCAL_TZ)
         assert len(records) == 1
         ts = records[0]["timestamp"]
         expected = datetime(2026, 4, 9, 10, 0, 0, tzinfo=LOCAL_TZ)

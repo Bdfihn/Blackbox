@@ -1,67 +1,127 @@
 import logging
+import os
+import shutil
+import sqlite3
+import tempfile
 import zoneinfo
-from datetime import datetime
+from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 
 from .base import Chunk
-from iphone import parse_knowledge_db, parse_health
 
 log = logging.getLogger(__name__)
 
-CHUNK_MINUTES = 5
+APPLE_EPOCH = datetime(2001, 1, 1, tzinfo=timezone.utc)
+
+# healthdb_secure.sqlite data_type constants (observed iOS 16-17)
+_STEPS_TYPE = 7   # HKQuantityTypeIdentifierStepCount
+_HR_TYPE    = 5   # HKQuantityTypeIdentifierHeartRate
+_SLEEP_TYPE = 63  # HKCategoryTypeIdentifierSleepAnalysis
 
 
-class IPhoneAppsSource:
-    def __init__(self, backup, local_tz: zoneinfo.ZoneInfo, chunk_minutes: int = CHUNK_MINUTES):
-        self._backup = backup
-        self._local_tz = local_tz
-        self._chunk_minutes = chunk_minutes
+def apple_ts(apple_secs: float) -> datetime:
+    """Convert Apple CoreData timestamp (seconds since 2001-01-01 UTC) to UTC datetime."""
+    return APPLE_EPOCH + timedelta(seconds=apple_secs)
 
-    def get_chunks(self, start: datetime, end: datetime) -> list[Chunk]:
-        events = parse_knowledge_db(self._backup, start, end)
-        log.info(f"  knowledgeC: {len(events)} foreground events")
-        return self._chunk_apps(events)
 
-    def _chunk_apps(self, events: list[dict]) -> list[Chunk]:
-        if not events:
-            return []
+def check_backup() -> tuple[str, str] | None:
+    """Scan configured backup paths for a valid iOS backup.
 
-        chunk_minutes = self._chunk_minutes
-        buckets: dict[datetime, dict[str, float]] = {}
-        for event in events:
-            ts = event["timestamp"]
-            floored = ts.replace(
-                minute=(ts.minute // chunk_minutes) * chunk_minutes,
-                second=0,
-                microsecond=0,
-            )
-            app_name = event["app_bundle_id"].split(".")[-1]
-            buckets.setdefault(floored, {})
-            buckets[floored][app_name] = buckets[floored].get(app_name, 0) + event["duration_secs"]
+    Checks IPHONE_BACKUP_PATH then IPHONE_BACKUP_PATH2. A valid backup is a
+    subdirectory containing Manifest.db.
 
-        chunks = []
-        for window_start, app_totals in sorted(buckets.items()):
-            top_apps = sorted(app_totals.items(), key=lambda x: x[1], reverse=True)[:5]
-            text = (
-                f"[{window_start.strftime('%Y-%m-%d %H:%M')}] "
-                f"iPhone activity for {chunk_minutes} minutes. "
-                f"Top apps: {', '.join(f'{a}({round(s/60,1)}m)' for a, s in top_apps)}."
-            )
-            chunks.append(Chunk(
-                window_start=window_start.isoformat(),
-                text=text,
-                apps=[a for a, _ in top_apps],
-                total_secs=sum(app_totals.values()),
-                source="iphone",
-            ))
-        return chunks
+    Returns (backuproot, udid) for the first valid backup found, or None.
+    """
+    for env_key in ("IPHONE_BACKUP_PATH", "IPHONE_BACKUP_PATH2"):
+        path = os.getenv(env_key, "")
+        if not path or not os.path.isdir(path):
+            continue
+        try:
+            for entry in os.scandir(path):
+                if entry.is_dir() and os.path.exists(os.path.join(entry.path, "Manifest.db")):
+                    return path, entry.name
+        except OSError:
+            continue
+    return None
+
+
+@contextmanager
+def open_backup_db(backup, relative_path: str):
+    """Decrypt and open a SQLite database from an iPhone backup.
+
+    Yields a sqlite3.Connection, or None if the file is not present in the backup.
+    Cleans up the temp directory on exit.
+    """
+    tmpdir = tempfile.mkdtemp()
+    try:
+        result = backup.getFileDecryptedCopy(relativePath=relative_path, targetFolder=tmpdir)
+        if not result:
+            yield None
+            return
+        db_path = result.get("decryptedFilePath") or os.path.join(tmpdir, os.path.basename(relative_path))
+        conn = sqlite3.connect(db_path)
+        try:
+            yield conn
+        finally:
+            conn.close()
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def parse_health(backup, start_local: datetime, end_local: datetime, local_tz: zoneinfo.ZoneInfo) -> list[dict]:
+    """Extract steps, heart rate, and sleep from healthdb_secure.sqlite for the given window.
+
+    Returns:
+        List of {timestamp (local_tz datetime), type ('steps'|'heart_rate'|'sleep'),
+                 value (float), unit (str)}.
+        For 'sleep', value is duration in seconds (end_date − start_date).
+    """
+    with open_backup_db(backup, "Health/healthdb_secure.sqlite") as conn:
+        if conn is None:
+            raise FileNotFoundError("healthdb_secure.sqlite not found in backup")
+        records = []
+
+        for start_ts, qty in conn.execute(
+            "SELECT s.start_date, qs.quantity "
+            "FROM samples s JOIN quantity_samples qs ON qs.ROWID = s.ROWID "
+            "WHERE s.data_type = ?",
+            (_STEPS_TYPE,),
+        ).fetchall():
+            ts = apple_ts(start_ts).astimezone(local_tz)
+            if start_local <= ts < end_local:
+                records.append({"timestamp": ts, "type": "steps", "value": qty, "unit": "count"})
+
+        for start_ts, qty in conn.execute(
+            "SELECT s.start_date, qs.quantity "
+            "FROM samples s JOIN quantity_samples qs ON qs.ROWID = s.ROWID "
+            "WHERE s.data_type = ?",
+            (_HR_TYPE,),
+        ).fetchall():
+            ts = apple_ts(start_ts).astimezone(local_tz)
+            if start_local <= ts < end_local:
+                records.append({"timestamp": ts, "type": "heart_rate", "value": qty, "unit": "count/min"})
+
+        for start_ts, end_ts, _val in conn.execute(
+            "SELECT s.start_date, s.end_date, cs.value "
+            "FROM samples s JOIN category_samples cs ON cs.ROWID = s.ROWID "
+            "WHERE s.data_type = ?",
+            (_SLEEP_TYPE,),
+        ).fetchall():
+            ts = apple_ts(start_ts).astimezone(local_tz)
+            if start_local <= ts < end_local:
+                duration = (end_ts - start_ts) if end_ts is not None else 0.0
+                records.append({"timestamp": ts, "type": "sleep", "value": duration, "unit": "sec"})
+
+        return records
 
 
 class IPhoneHealthSource:
-    def __init__(self, backup):
+    def __init__(self, backup, local_tz: zoneinfo.ZoneInfo):
         self._backup = backup
+        self._local_tz = local_tz
 
     def get_chunks(self, start: datetime, end: datetime) -> list[Chunk]:
-        records = parse_health(self._backup, start, end)
+        records = parse_health(self._backup, start, end, self._local_tz)
         log.info(f"  healthdb: {len(records)} records")
         return self._chunk_health(records)
 

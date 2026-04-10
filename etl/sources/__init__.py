@@ -1,6 +1,6 @@
 from .base import Chunk, DataSource, day_bounds, DAY_START_HOUR
 from .activitywatch import ActivityWatchSource
-from .iphone import IPhoneAppsSource, IPhoneHealthSource
+from .iphone import check_backup, IPhoneHealthSource
 
 __all__ = [
     "Chunk",
@@ -8,6 +8,6 @@ __all__ = [
     "day_bounds",
     "DAY_START_HOUR",
     "ActivityWatchSource",
-    "IPhoneAppsSource",
+    "check_backup",
     "IPhoneHealthSource",
 ]
