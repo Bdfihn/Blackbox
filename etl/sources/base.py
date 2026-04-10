@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Protocol
 
-DAY_START_HOUR = 4  # Days run 04:00 → next day 04:00
+DAY_START_HOUR = 4  # Day starts/ends at 4 AM
 
 
 def day_bounds(date: datetime) -> tuple[datetime, datetime]:
