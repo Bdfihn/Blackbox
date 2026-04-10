@@ -18,6 +18,8 @@ services:
     volumes:
       - ./diary:/app/diary
       - ./data:/app/data
+      - "C:/Users/Bdfihn/AppData/Roaming/Apple Computer/MobileSync/Backup:/app/iphone_backup:ro"
+      - "C:/Users/Bdfihn/Apple/MobileSync/Backup:/app/iphone_backup2:ro"
     environment:
       - QDRANT_HOST=blackbox-qdrant
       - QDRANT_PORT=6333
@@ -25,9 +27,11 @@ services:
       - OLLAMA_PORT=11434
       - ACTIVITYWATCH_HOST=host.docker.internal
       - ACTIVITYWATCH_PORT=5600
-      - IMAZING_BACKUP_PASSWORD=your_backup_password_here
       - TIMEZONE=America/New_York
       - TZ=America/New_York
+      - IPHONE_BACKUP_PATH=/app/iphone_backup
+      - IPHONE_BACKUP_PATH2=/app/iphone_backup2
+      - IPHONE_BACKUP_PASSWORD=Overbook6-Around5-Viability3-Deviation7
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
