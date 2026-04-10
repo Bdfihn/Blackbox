@@ -4,3 +4,4 @@ ollama==0.2.1
 schedule==1.2.1
 python-dotenv==1.0.1
 pytest==7.4.3
+iOSbackup
