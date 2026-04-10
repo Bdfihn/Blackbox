@@ -22,10 +22,10 @@ def job():
         log.error(f"ETL job failed: {e}", exc_info=True)
 
 
-# Run every night at 02:00
-schedule.every().day.at("02:00").do(job)
+# Run every night at 04:15 — after the 04:00 day boundary so the full day is captured
+schedule.every().day.at("04:15").do(job)
 
-log.info("Scheduler started. ETL will run nightly at 02:00.")
+log.info("Scheduler started. ETL will run nightly at 04:15.")
 log.info(f"Next run: {schedule.next_run()}")
 
 # Also run immediately on startup so you get data right away
