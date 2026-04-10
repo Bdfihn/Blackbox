@@ -1,11 +1,10 @@
 """
-etl.py — Nightly ETL for Phase 1 (ActivityWatch)
-Pulls today's ActivityWatch events, chunks them into 5-min windows,
-embeds via nomic-embed-text, upserts to Qdrant, writes a diary .md file.
+etl.py — Nightly ETL for Blackbox.
+Pulls all data sources, embeds chunks via nomic-embed-text,
+upserts to Qdrant, writes a diary .md file.
 """
 
 import os
-import json
 import sqlite3
 import hashlib
 import logging
@@ -18,7 +17,8 @@ import ollama
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
 
-from iphone import check_backup, parse_knowledge_db, parse_health, day_bounds
+from iphone import check_backup
+from sources import ActivityWatchSource, IPhoneAppsSource, IPhoneHealthSource, day_bounds, Chunk
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -35,7 +35,6 @@ DB_PATH        = Path(os.getenv("DB_PATH", "/app/data/blackbox.db"))
 COLLECTION     = "blackbox"
 EMBED_MODEL    = "nomic-embed-text"
 SUMMARY_MODEL  = "gemma4:e4b"
-CHUNK_MINUTES  = 5
 
 DIARY_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -86,210 +85,30 @@ def mark_ingested(chunk_id: str):
     conn.close()
 
 
-# ── ActivityWatch ─────────────────────────────────────────────────────────────
-def fetch_aw_buckets() -> list[str]:
-    """Return bucket IDs that track windows (aw-watcher-window)."""
-    r = requests.get(f"{AW_BASE}/buckets/", timeout=10, allow_redirects=True, headers={"Host": "localhost:5600"})
-    r.raise_for_status()
-    buckets = r.json()
-    return [b for b in buckets if "window" in b.lower()]
-
-
-def fetch_aw_events(bucket_id: str, start: datetime, end: datetime) -> list[dict]:
-    """Fetch raw events from a bucket for a time range."""
-    params = {
-        "start": start.isoformat(),
-        "end": end.isoformat(),
-        "limit": 10000,
-    }
-    r = requests.get(f"{AW_BASE}/buckets/{bucket_id}/events", params=params, timeout=30, headers={"Host": "localhost:5600"})
-    r.raise_for_status()
-    return r.json()
-
-
-def chunk_events(events: list[dict], chunk_minutes: int = CHUNK_MINUTES) -> list[dict]:
-    """
-    Group events into fixed time buckets of `chunk_minutes`.
-    Each chunk becomes one document in Qdrant.
-    Returns list of dicts: {window_start, apps: [{app, title, duration_secs}], total_secs}
-    """
-    if not events:
-        return []
-
-    buckets: dict[datetime, list] = {}
-
-    for event in events:
-        ts = datetime.fromisoformat(event["timestamp"].replace("Z", "+00:00")).astimezone(LOCAL_TZ)
-        ts = ts.astimezone(LOCAL_TZ)
-        duration = event.get("duration", 0)
-        data = event.get("data", {})
-        app = data.get("app", "unknown")
-        title = data.get("title", "")
-
-        # Round down to nearest chunk_minutes
-        floored = ts.replace(
-            minute=(ts.minute // chunk_minutes) * chunk_minutes,
-            second=0,
-            microsecond=0
-        )
-        if floored not in buckets:
-            buckets[floored] = []
-        buckets[floored].append({"app": app, "title": title, "duration_secs": duration})
-
-    chunks = []
-    for window_start, items in sorted(buckets.items()):
-        total = sum(i["duration_secs"] for i in items)
-        # Summarise: top apps by time
-        app_totals: dict[str, float] = {}
-        for i in items:
-            app_totals[i["app"]] = app_totals.get(i["app"], 0) + i["duration_secs"]
-        top_apps = sorted(app_totals.items(), key=lambda x: x[1], reverse=True)[:5]
-
-        # Build a natural-language description of this chunk
-        descriptions = []
-        for item in items:
-            if item["duration_secs"] > 10:
-                mins = round(item["duration_secs"] / 60, 1)
-                descriptions.append(f"{item['app']}: '{item['title']}' ({mins}m)")
-
-        text = (
-            f"[{window_start.strftime('%Y-%m-%d %H:%M')}] "
-            f"PC activity for {chunk_minutes} minutes. "
-            f"Top apps: {', '.join(f'{a}({round(s/60,1)}m)' for a,s in top_apps)}. "
-            f"Details: {'; '.join(descriptions[:10])}"
-        )
-
-        chunks.append({
-            "window_start": window_start.isoformat(),
-            "text": text,
-            "apps": [a for a, _ in top_apps],
-            "total_secs": total,
-            "source": "activitywatch",
-        })
-
-    return chunks
-
-
-def chunk_iphone_apps(events: list[dict], chunk_minutes: int = CHUNK_MINUTES) -> list[dict]:
-    """Convert knowledgeC foreground events into 5-min chunks matching ActivityWatch format."""
-    if not events:
-        return []
-
-    buckets: dict[datetime, dict[str, float]] = {}
-    for event in events:
-        ts = event["timestamp"]  # already LOCAL_TZ-aware
-        floored = ts.replace(
-            minute=(ts.minute // chunk_minutes) * chunk_minutes,
-            second=0,
-            microsecond=0,
-        )
-        app_name = event["app_bundle_id"].split(".")[-1]  # e.g. "instagram"
-        if floored not in buckets:
-            buckets[floored] = {}
-        buckets[floored][app_name] = buckets[floored].get(app_name, 0) + event["duration_secs"]
-
-    chunks = []
-    for window_start, app_totals in sorted(buckets.items()):
-        top_apps = sorted(app_totals.items(), key=lambda x: x[1], reverse=True)[:5]
-        total = sum(app_totals.values())
-        text = (
-            f"[{window_start.strftime('%Y-%m-%d %H:%M')}] "
-            f"iPhone activity for {chunk_minutes} minutes. "
-            f"Top apps: {', '.join(f'{a}({round(s/60,1)}m)' for a, s in top_apps)}."
-        )
-        chunks.append({
-            "window_start": window_start.isoformat(),
-            "text":         text,
-            "apps":         [a for a, _ in top_apps],
-            "total_secs":   total,
-            "source":       "iphone",
-        })
-    return chunks
-
-
-def chunk_iphone_health(records: list[dict]) -> list[dict]:
-    """Convert health records into hourly summary chunks and per-sleep-session chunks."""
-    if not records:
-        return []
-
-    chunks = []
-
-    # ── Hourly summaries for steps + heart rate ───────────────────────────────
-    hourly_steps: dict[datetime, float] = {}
-    hourly_hr: dict[datetime, list[float]] = {}
-
-    for r in records:
-        if r["type"] in ("steps", "heart_rate"):
-            ts = r["timestamp"]
-            hour_key = ts.replace(minute=0, second=0, microsecond=0)
-            if r["type"] == "steps":
-                hourly_steps[hour_key] = hourly_steps.get(hour_key, 0) + r["value"]
-            else:
-                hourly_hr.setdefault(hour_key, []).append(r["value"])
-
-    for hour in sorted(set(hourly_steps) | set(hourly_hr)):
-        parts = []
-        if hour in hourly_steps:
-            parts.append(f"{int(hourly_steps[hour])} steps")
-        if hour in hourly_hr:
-            avg_hr = sum(hourly_hr[hour]) / len(hourly_hr[hour])
-            parts.append(f"avg HR {round(avg_hr)}bpm")
-        text = (
-            f"[{hour.strftime('%Y-%m-%d %H:%M')}] "
-            f"Health summary: {', '.join(parts)}."
-        )
-        chunks.append({
-            "window_start": hour.isoformat(),
-            "text":         text,
-            "apps":         [],
-            "total_secs":   3600,
-            "source":       "iphone_health",
-        })
-
-    # ── Sleep sessions ────────────────────────────────────────────────────────
-    for r in records:
-        if r["type"] == "sleep":
-            ts = r["timestamp"]
-            duration_hours = r["value"] / 3600
-            text = (
-                f"[{ts.strftime('%Y-%m-%d %H:%M')}] "
-                f"Sleep session: {round(duration_hours, 1)} hours."
-            )
-            chunks.append({
-                "window_start": ts.isoformat(),
-                "text":         text,
-                "apps":         [],
-                "total_secs":   int(r["value"]),
-                "source":       "iphone_health",
-            })
-
-    return chunks
-
-
 def embed(text: str) -> list[float]:
     """Embed a string using nomic-embed-text via Ollama."""
     response = ollama_client.embeddings(model=EMBED_MODEL, prompt=text)
     return response["embedding"]
 
 
-def upsert_chunks(chunks: list[dict], date_str: str):
+def upsert_chunks(chunks: list[Chunk], date_str: str):
     """Embed and upsert chunks into Qdrant, skipping already-ingested ones."""
     points = []
     for chunk in chunks:
-        chunk_id = hashlib.md5(chunk["text"].encode()).hexdigest()
+        chunk_id = hashlib.md5(chunk.text.encode()).hexdigest()
         if already_ingested(chunk_id):
             continue
 
-        vector = embed(chunk["text"])
+        vector = embed(chunk.text)
         point = PointStruct(
             id=chunk_id,
             vector=vector,
             payload={
-                "text":         chunk["text"],
-                "window_start": chunk["window_start"],
-                "apps":         chunk.get("apps", []),
-                "total_secs":   chunk.get("total_secs", 0),
-                "source":       chunk["source"],
+                "text":         chunk.text,
+                "window_start": chunk.window_start,
+                "apps":         chunk.apps,
+                "total_secs":   chunk.total_secs,
+                "source":       chunk.source,
                 "date":         date_str,
             }
         )
@@ -310,15 +129,14 @@ def upsert_chunks(chunks: list[dict], date_str: str):
 
 
 # ── Diary generation ──────────────────────────────────────────────────────────
-def generate_diary_entry(date: str, chunks: list[dict]) -> str:
-    """Use gemma4:27b to write a human-readable diary entry from the day's chunks."""
+def generate_diary_entry(date: str, chunks: list[Chunk]) -> str:
+    """Use Gemma to write a human-readable diary entry from the day's chunks."""
     if not chunks:
         return f"# {date}\n\nNo activity recorded.\n"
 
-    # Build a compact timeline for the prompt
-    timeline = "\n".join(c["text"] for c in chunks)
+    timeline = "\n".join(c.text for c in chunks)
 
-    prompt = f"""Write a concise diary entry for {date} based on the logs below. 
+    prompt = f"""Write a concise diary entry for {date} based on the logs below.
 
 - Use plain, first-person language.
 - Describe the day chronologically, grouping related tasks into a clear progression.
@@ -327,7 +145,7 @@ def generate_diary_entry(date: str, chunks: list[dict]) -> str:
 - Avoid flowery adjectives, no guessing how I felt.
 - Write only the diary entry, no preamble.
 
-Example Output: 
+Example Output:
 I woke up around 9:00 AM and started the day with light movement, recording about 150 steps through the late morning. My physical activity remained low and sporadic throughout the afternoon until 4:00 PM, when I logged a more consistent walk of 406 steps. I recorded my highest period of movement between 6:00 PM and 7:00 PM, totaling 1,863 steps.
 
 I began using my PC at 10:50 PM, starting with a session in a browser and an AI assistant. At 11:05 PM, I moved into the terminal to manage various containers, specifically pulling new data models and running several system updates.
@@ -353,8 +171,8 @@ def write_diary(date: str, content: str):
 # ── Main ETL run ──────────────────────────────────────────────────────────────
 def run_etl(target_date: datetime | None = None):
     """
-    Run the full ETL for a given date (defaults to yesterday, 
-    since the nightly job runs just after midnight).
+    Run the full ETL for a given date (defaults to yesterday,
+    since the nightly job runs just after the 04:00 day boundary).
     """
     if target_date is None:
         target_date = datetime.now(LOCAL_TZ) - timedelta(days=1)
@@ -367,58 +185,31 @@ def run_etl(target_date: datetime | None = None):
 
     start, end = day_bounds(target_date)
 
-    all_chunks = []
+    sources = [ActivityWatchSource(AW_BASE, LOCAL_TZ)]
 
-    # Pull from all window-tracking buckets
     try:
-        buckets = fetch_aw_buckets()
-        log.info(f"Found ActivityWatch buckets: {buckets}")
-    except Exception as e:
-        log.error(f"Could not reach ActivityWatch at {AW_BASE}: {e}")
-        buckets = []
-
-    for bucket_id in buckets:
-        try:
-            events = fetch_aw_events(bucket_id, start, end)
-            log.info(f"  {bucket_id}: {len(events)} events")
-            chunks = chunk_events(events)
-            all_chunks.extend(chunks)
-        except Exception as e:
-            log.error(f"  Error fetching {bucket_id}: {e}")
-
-    # ── iPhone backup ingestion ───────────────────────────────────────────────
-    try:
-        from iOSbackup import iOSbackup as _IOSBackup  # Docker-only dep; import inside try
+        from iOSbackup import iOSbackup as _IOSBackup
         backup_info = check_backup()
         if backup_info:
             backuproot, udid = backup_info
             password = os.getenv("IPHONE_BACKUP_PASSWORD", "")
-            backup = _IOSBackup(
-                udid=udid,
-                cleartextpassword=password,
-                backuproot=backuproot,
-            )
+            backup = _IOSBackup(udid=udid, cleartextpassword=password, backuproot=backuproot)
             log.info(f"iPhone backup found: {udid} at {backuproot}")
-
-            app_events = parse_knowledge_db(backup, target_date)
-            log.info(f"  knowledgeC: {len(app_events)} foreground events")
-            all_chunks.extend(chunk_iphone_apps(app_events))
-
-            health_records = parse_health(backup, target_date)
-            log.info(f"  healthdb: {len(health_records)} records")
-            all_chunks.extend(chunk_iphone_health(health_records))
+            sources.append(IPhoneAppsSource(backup, LOCAL_TZ))
+            sources.append(IPhoneHealthSource(backup))
         else:
             log.info("No iPhone backup found — skipping iPhone data.")
     except Exception as e:
         log.warning(f"iPhone ingestion failed, continuing without it: {e}")
 
-    # ── Sort all sources by timestamp before upsert + diary ──────────────────
-    all_chunks.sort(key=lambda c: c["window_start"])
+    all_chunks: list[Chunk] = []
+    for source in sources:
+        all_chunks.extend(source.get_chunks(start, end))
 
-    # Upsert to Qdrant
+    all_chunks.sort(key=lambda c: c.window_start)
+
     upsert_chunks(all_chunks, date_str)
 
-    # Generate and write diary
     log.info("Generating diary entry...")
     diary_content = generate_diary_entry(date_str, all_chunks)
     write_diary(date_str, diary_content)

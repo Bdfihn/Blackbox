@@ -17,15 +17,8 @@ import tempfile
 import zoneinfo
 from datetime import datetime, timedelta, timezone
 
-LOCAL_TZ       = zoneinfo.ZoneInfo(os.getenv("TIMEZONE", "America/New_York"))
-APPLE_EPOCH    = datetime(2001, 1, 1, tzinfo=timezone.utc)
-DAY_START_HOUR = 4  # Days run 04:00 → next day 04:00
-
-
-def day_bounds(date: datetime) -> tuple[datetime, datetime]:
-    """Return (start, end) for a logical day: date @ 04:00 → next day @ 04:00."""
-    start = date.replace(hour=DAY_START_HOUR, minute=0, second=0, microsecond=0)
-    return start, start + timedelta(days=1)
+LOCAL_TZ    = zoneinfo.ZoneInfo(os.getenv("TIMEZONE", "America/New_York"))
+APPLE_EPOCH = datetime(2001, 1, 1, tzinfo=timezone.utc)
 
 # healthdb_secure.sqlite data_type constants (observed iOS 16-17; verify via Manifest if needed)
 _STEPS_TYPE = 7   # HKQuantityTypeIdentifierStepCount
@@ -59,18 +52,17 @@ def check_backup() -> tuple[str, str] | None:
     return None
 
 
-def parse_knowledge_db(backup, target_date: datetime) -> list[dict]:
-    """Extract foreground app usage from knowledgeC.db for target_date.
+def parse_knowledge_db(backup, start_local: datetime, end_local: datetime) -> list[dict]:
+    """Extract foreground app usage from knowledgeC.db for the given time window.
 
     Args:
         backup: An open iOSbackup instance.
-        target_date: A LOCAL_TZ-aware datetime; extracts midnight–midnight that day.
+        start_local: Window start (LOCAL_TZ-aware datetime).
+        end_local:   Window end   (LOCAL_TZ-aware datetime).
 
     Returns:
         List of {timestamp (LOCAL_TZ datetime), app_bundle_id, duration_secs}.
     """
-    start_local, end_local = day_bounds(target_date)
-
     tmpdir = tempfile.mkdtemp()
     try:
         try:
@@ -112,20 +104,19 @@ def parse_knowledge_db(backup, target_date: datetime) -> list[dict]:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
-def parse_health(backup, target_date: datetime) -> list[dict]:
-    """Extract steps, heart rate, and sleep from healthdb_secure.sqlite for target_date.
+def parse_health(backup, start_local: datetime, end_local: datetime) -> list[dict]:
+    """Extract steps, heart rate, and sleep from healthdb_secure.sqlite for the given window.
 
     Args:
         backup: An open iOSbackup instance.
-        target_date: A LOCAL_TZ-aware datetime; extracts midnight–midnight that day.
+        start_local: Window start (LOCAL_TZ-aware datetime).
+        end_local:   Window end   (LOCAL_TZ-aware datetime).
 
     Returns:
         List of {timestamp (LOCAL_TZ datetime), type ('steps'|'heart_rate'|'sleep'),
                  value (float), unit (str)}.
         For 'sleep', value is duration in seconds (end_date − start_date).
     """
-    start_local, end_local = day_bounds(target_date)
-
     tmpdir = tempfile.mkdtemp()
     try:
         result  = backup.getFileDecryptedCopy(

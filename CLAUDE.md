@@ -4,6 +4,7 @@
 - Doing it right is better than doing it fast. You are not in a rush. NEVER skip steps or take shortcuts.
 - Prefers direct, honest feedback over diplomacy.
 - Speak up about bad ideas, don't just go along with them.
+- When the same pattern appears in two or more places and its shape is clear, extract it into a named abstraction. Don't abstract speculatively — repetition is the signal, not anticipation of it.
 
 ## Git Workflow
 - After every meaningful change, commit and push. Don't let work pile up uncommitted.
