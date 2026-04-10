@@ -19,7 +19,6 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
 
 from iphone import check_backup, parse_knowledge_db, parse_health
-from iOSbackup import iOSbackup as _IOSBackup
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -385,6 +384,7 @@ def run_etl(target_date: datetime | None = None):
 
     # ── iPhone backup ingestion ───────────────────────────────────────────────
     try:
+        from iOSbackup import iOSbackup as _IOSBackup  # Docker-only dep; import inside try
         backup_info = check_backup()
         if backup_info:
             backuproot, udid = backup_info
