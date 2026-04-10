@@ -31,25 +31,14 @@
 ## Project Specifics
 
 ### Why
-Blackbox is a personal life logging system. It ingests activity data from the user's PC (ActivityWatch) and iPhone (encrypted backups), stores it as searchable vectors, and lets the user ask natural language questions about their own past activity. It also auto-generates daily diary entries. The goal is a complete, queryable record of how the user actually spends their time — no manual input, no app to open.
+Blackbox is a personal life transcript generator. The goal is a complete, queryable record of how the user actually spends their time — no manual input, fully automatic, synced nightly. It ingests activity from all available data streams (PC, iPhone, wearables, audio), stores everything as searchable vectors with timestamped transcript-style logs, and lets the user ask natural language questions about their own history. It also auto-generates daily diary entries synthesized across all sources.
 
 ### What
-**Stack:** Python, Docker, Qdrant (vector DB), SQLite (dedup tracking), Ollama (local LLMs), Flask
-
-**Components:**
-- `etl/etl.py` — Main ETL orchestrator. Fetches ActivityWatch window events, chunks into 5-min windows, embeds via `nomic-embed-text`, upserts to Qdrant, generates diary entries via `gemma4:e4b`. Also defines `upsert_chunks()` and diary generation.
-- `etl/iphone.py` — Parses encrypted iOS backups. Extracts foreground app usage from `knowledgeC.db` and steps/heart rate/sleep from `healthdb_secure.sqlite`. Also owns `day_bounds()` — the canonical definition of a logical day.
-- `etl/scheduler.py` — Runs ETL nightly at 04:15 (after the 04:00 day boundary).
-- `query/rag.py` — Embeds a question, retrieves top-K chunks from Qdrant, answers via `gemma4:e4b`.
-- `query/server.py` — Flask API. Serves the web UI and exposes `/api/query`, `/api/diary`, `/api/diary/<date>/timeline`, and diary CRUD.
-
-**Models:** `nomic-embed-text` for embeddings, `gemma4:e4b` for generation. Confirm model selection before changing.
-
-**Storage:** Qdrant holds vectors + payloads. SQLite tracks ingested chunk IDs to prevent re-embedding. Diary entries are plain `.md` files.
+A local-first, private ETL + RAG pipeline. Data is captured from ActivityWatch (PC), iPhone Health backups, and future sources (Garmin, Omi). Each night the pipeline chunks and embeds all new data into Qdrant, writes a Gemma-generated diary entry to `/diary/`, and keeps a SQLite deduplication log. A Flask query service exposes a RAG interface — embed the question, retrieve top chunks, answer with Gemma. Everything runs in Docker on the user's local machine. Nothing leaves the network.
 
 ### How
-- **Day boundary:** A logical "day" runs 04:00 → next day 04:00. `day_bounds()` in `iphone.py` is the single source of truth. The `date` payload field in Qdrant reflects the logical date, not the wall-clock date. Never revert to midnight-to-midnight windows.
-- **iPhone backups:** Must be mounted as a Docker volume. Two paths are checked: `IPHONE_BACKUP_PATH` then `IPHONE_BACKUP_PATH2`. `knowledgeC.db` is only present in full encrypted backups (not standard Finder/iTunes backups) — if it's missing, the parser silently returns empty.
-- **ActivityWatch:** Must be running on the host machine. The ETL container reaches it via `host.docker.internal:5600`. Only `aw-watcher-window` buckets are ingested.
-- **Dedup:** Chunks are deduplicated by MD5 of their text. Re-running ETL for the same day is safe — already-ingested chunks are skipped. To re-ingest a day, delete it via `DELETE /api/diary/<date>` first.
-- **ActivityWatch day setting:** AW's "Start of day: 04:00" setting in its own UI is set to match. This only affects AW's web UI display — our ETL constructs its own time windows and is unaffected by this setting.
+- **Capture**: ActivityWatch (always-on Windows service), iPhone backup via Apple Devices app (nightly USB), Smartwatch, Audio files and transcripts
+- **Process**: Nightly ETL in `etl/etl.py` — pulls AW events via local API, decrypts iPhone backup via `iOSbackup`, chunks all sources into 5-min windows normalized to local timezone, embeds via `nomic-embed-text` through Ollama
+- **Store**: Qdrant (vectors + metadata), SQLite (ingestion tracking), `/diary/*.md` (human-readable)
+- **Query**: `query/rag.py` — semantic search over Qdrant, answer generation via `gemma4:e4b`, served at `localhost:8080`
+- **Stack**: Python 3.12, Docker Compose, Qdrant, Ollama (gemma4:e4b + gemma4:27b + nomic-embed-text), Flask, ActivityWatch, iOSbackup
