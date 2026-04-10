@@ -168,6 +168,102 @@ def chunk_events(events: list[dict], chunk_minutes: int = CHUNK_MINUTES) -> list
     return chunks
 
 
+def chunk_iphone_apps(events: list[dict], chunk_minutes: int = CHUNK_MINUTES) -> list[dict]:
+    """Convert knowledgeC foreground events into 5-min chunks matching ActivityWatch format."""
+    if not events:
+        return []
+
+    buckets: dict[datetime, dict[str, float]] = {}
+    for event in events:
+        ts = event["timestamp"]  # already LOCAL_TZ-aware
+        floored = ts.replace(
+            minute=(ts.minute // chunk_minutes) * chunk_minutes,
+            second=0,
+            microsecond=0,
+        )
+        app_name = event["app_bundle_id"].split(".")[-1]  # e.g. "instagram"
+        if floored not in buckets:
+            buckets[floored] = {}
+        buckets[floored][app_name] = buckets[floored].get(app_name, 0) + event["duration_secs"]
+
+    chunks = []
+    for window_start, app_totals in sorted(buckets.items()):
+        top_apps = sorted(app_totals.items(), key=lambda x: x[1], reverse=True)[:5]
+        total = sum(app_totals.values())
+        text = (
+            f"[{window_start.strftime('%Y-%m-%d %H:%M')}] "
+            f"iPhone activity for {chunk_minutes} minutes. "
+            f"Top apps: {', '.join(f'{a}({round(s/60,1)}m)' for a, s in top_apps)}."
+        )
+        chunks.append({
+            "window_start": window_start.isoformat(),
+            "text":         text,
+            "apps":         [a for a, _ in top_apps],
+            "total_secs":   total,
+            "source":       "iphone",
+        })
+    return chunks
+
+
+def chunk_iphone_health(records: list[dict]) -> list[dict]:
+    """Convert health records into hourly summary chunks and per-sleep-session chunks."""
+    if not records:
+        return []
+
+    chunks = []
+
+    # ── Hourly summaries for steps + heart rate ───────────────────────────────
+    hourly_steps: dict[datetime, float] = {}
+    hourly_hr: dict[datetime, list[float]] = {}
+
+    for r in records:
+        if r["type"] in ("steps", "heart_rate"):
+            ts = r["timestamp"]
+            hour_key = ts.replace(minute=0, second=0, microsecond=0)
+            if r["type"] == "steps":
+                hourly_steps[hour_key] = hourly_steps.get(hour_key, 0) + r["value"]
+            else:
+                hourly_hr.setdefault(hour_key, []).append(r["value"])
+
+    for hour in sorted(set(hourly_steps) | set(hourly_hr)):
+        parts = []
+        if hour in hourly_steps:
+            parts.append(f"{int(hourly_steps[hour])} steps")
+        if hour in hourly_hr:
+            avg_hr = sum(hourly_hr[hour]) / len(hourly_hr[hour])
+            parts.append(f"avg HR {round(avg_hr)}bpm")
+        text = (
+            f"[{hour.strftime('%Y-%m-%d %H:%M')}] "
+            f"Health summary: {', '.join(parts)}."
+        )
+        chunks.append({
+            "window_start": hour.isoformat(),
+            "text":         text,
+            "apps":         [],
+            "total_secs":   3600,
+            "source":       "iphone_health",
+        })
+
+    # ── Sleep sessions ────────────────────────────────────────────────────────
+    for r in records:
+        if r["type"] == "sleep":
+            ts = r["timestamp"]
+            duration_hours = r["value"] / 3600
+            text = (
+                f"[{ts.strftime('%Y-%m-%d %H:%M')}] "
+                f"Sleep session: {round(duration_hours, 1)} hours."
+            )
+            chunks.append({
+                "window_start": ts.isoformat(),
+                "text":         text,
+                "apps":         [],
+                "total_secs":   int(r["value"]),
+                "source":       "iphone_health",
+            })
+
+    return chunks
+
+
 def embed(text: str) -> list[float]:
     """Embed a string using nomic-embed-text via Ollama."""
     response = ollama_client.embeddings(model=EMBED_MODEL, prompt=text)
@@ -187,12 +283,12 @@ def upsert_chunks(chunks: list[dict]):
             id=chunk_id,
             vector=vector,
             payload={
-                "text": chunk["text"],
+                "text":         chunk["text"],
                 "window_start": chunk["window_start"],
-                "apps": chunk["apps"],
-                "total_secs": chunk["total_secs"],
-                "source": chunk["source"],
-                "date": chunk["window_start"][:10],
+                "apps":         chunk.get("apps", []),
+                "total_secs":   chunk.get("total_secs", 0),
+                "source":       chunk["source"],
+                "date":         chunk["window_start"][:10],
             }
         )
         points.append((chunk_id, point))
@@ -220,18 +316,19 @@ def generate_diary_entry(date: str, chunks: list[dict]) -> str:
     # Build a compact timeline for the prompt
     timeline = "\n".join(c["text"] for c in chunks)
 
-    prompt = f"""You are writing a personal productivity diary entry for {date}.
-Below is a timeline of computer activity logged automatically throughout the day.
-Write a concise, honest diary entry (3-5 paragraphs) that:
-- Summarises what the person worked on and when
-- Notes any apparent focus sessions or distracted periods
-- Identifies the most productive and least productive parts of the day
-- Uses plain, first-person language as if the person is reflecting on their own day
+    prompt = f"""You are generating a concise personal logbook entry for {date} based on raw activity data.
+The tone should be professional, objective, and first-person, similar to a project dev-log or a ship's captain's log.
+
+Structure the entry into 3-4 short paragraphs:
+- Chronological flow: Start with how the day/session began and move through major shifts.
+- Descriptive action: Describe what was being done (e.g., "Spent an hour troubleshooting Docker containers") rather than just listing apps.
+- Technical accuracy: Maintain specific details like filenames, CLI commands, or project names (e.g., "Blackbox").
+- Zero Introspection: Avoid words like "felt," "productive," "distracted," or "struggled." Focus entirely on the *what* and *when*.
 
 Activity timeline:
 {timeline}
 
-Write only the diary entry, no preamble."""
+Write only the logbook entry."""
 
     response = ollama_client.chat(
         model=SUMMARY_MODEL,
