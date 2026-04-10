@@ -72,17 +72,20 @@ def parse_knowledge_db(backup, target_date: datetime) -> list[dict]:
             domain="HomeDomain",
             targetFolder=tmpdir,
         )
+        if not result:
+            raise FileNotFoundError("getFileDecryptedCopy returned no result for knowledgeC.db")
         db_path = result.get("fileDecryptedPath") or os.path.join(tmpdir, "knowledgeC.db")
         conn    = sqlite3.connect(db_path)
-
-        rows = conn.execute("""
-            SELECT ZBUNDLEID, ZSTARTDATE, ZENDDATE
-            FROM   ZOBJECT
-            WHERE  ZSTREAMNAME = '/app/inFocus'
-              AND  ZBUNDLEID   LIKE 'com.%'
-              AND  ZSTARTDATE  IS NOT NULL
-        """).fetchall()
-        conn.close()
+        try:
+            rows = conn.execute("""
+                SELECT ZBUNDLEID, ZSTARTDATE, ZENDDATE
+                FROM   ZOBJECT
+                WHERE  ZSTREAMNAME = '/app/inFocus'
+                  AND  ZBUNDLEID   LIKE 'com.%'
+                  AND  ZSTARTDATE  IS NOT NULL
+            """).fetchall()
+        finally:
+            conn.close()
 
         events = []
         for bundle_id, start_ts, end_ts in rows:
@@ -122,46 +125,48 @@ def parse_health(backup, target_date: datetime) -> list[dict]:
             domain="HealthDomain",
             targetFolder=tmpdir,
         )
+        if not result:
+            raise FileNotFoundError("getFileDecryptedCopy returned no result for healthdb_secure.sqlite")
         db_path = result.get("fileDecryptedPath") or os.path.join(tmpdir, "healthdb_secure.sqlite")
         conn    = sqlite3.connect(db_path)
-
         records = []
+        try:
+            # Steps
+            for start_ts, qty in conn.execute(
+                "SELECT s.start_date, qs.quantity "
+                "FROM samples s JOIN quantity_samples qs ON qs.ROWID = s.ROWID "
+                "WHERE s.data_type = ?",
+                (_STEPS_TYPE,),
+            ).fetchall():
+                ts = _apple_ts(start_ts).astimezone(LOCAL_TZ)
+                if start_local <= ts < end_local:
+                    records.append({"timestamp": ts, "type": "steps", "value": qty, "unit": "count"})
 
-        # Steps
-        for start_ts, qty in conn.execute(
-            "SELECT s.start_date, qs.quantity "
-            "FROM samples s JOIN quantity_samples qs ON qs.ROWID = s.ROWID "
-            "WHERE s.data_type = ?",
-            (_STEPS_TYPE,),
-        ).fetchall():
-            ts = _apple_ts(start_ts).astimezone(LOCAL_TZ)
-            if start_local <= ts < end_local:
-                records.append({"timestamp": ts, "type": "steps", "value": qty, "unit": "count"})
+            # Heart rate
+            for start_ts, qty in conn.execute(
+                "SELECT s.start_date, qs.quantity "
+                "FROM samples s JOIN quantity_samples qs ON qs.ROWID = s.ROWID "
+                "WHERE s.data_type = ?",
+                (_HR_TYPE,),
+            ).fetchall():
+                ts = _apple_ts(start_ts).astimezone(LOCAL_TZ)
+                if start_local <= ts < end_local:
+                    records.append({"timestamp": ts, "type": "heart_rate", "value": qty, "unit": "count/min"})
 
-        # Heart rate
-        for start_ts, qty in conn.execute(
-            "SELECT s.start_date, qs.quantity "
-            "FROM samples s JOIN quantity_samples qs ON qs.ROWID = s.ROWID "
-            "WHERE s.data_type = ?",
-            (_HR_TYPE,),
-        ).fetchall():
-            ts = _apple_ts(start_ts).astimezone(LOCAL_TZ)
-            if start_local <= ts < end_local:
-                records.append({"timestamp": ts, "type": "heart_rate", "value": qty, "unit": "count/min"})
+            # Sleep
+            for start_ts, end_ts, _val in conn.execute(
+                "SELECT s.start_date, s.end_date, cs.value "
+                "FROM samples s JOIN category_samples cs ON cs.ROWID = s.ROWID "
+                "WHERE s.data_type = ?",
+                (_SLEEP_TYPE,),
+            ).fetchall():
+                ts = _apple_ts(start_ts).astimezone(LOCAL_TZ)
+                if start_local <= ts < end_local:
+                    duration = (end_ts - start_ts) if end_ts is not None else 0.0
+                    records.append({"timestamp": ts, "type": "sleep", "value": duration, "unit": "sec"})
+        finally:
+            conn.close()
 
-        # Sleep
-        for start_ts, end_ts, _val in conn.execute(
-            "SELECT s.start_date, s.end_date, cs.value "
-            "FROM samples s JOIN category_samples cs ON cs.ROWID = s.ROWID "
-            "WHERE s.data_type = ?",
-            (_SLEEP_TYPE,),
-        ).fetchall():
-            ts = _apple_ts(start_ts).astimezone(LOCAL_TZ)
-            if start_local <= ts < end_local:
-                duration = (end_ts - start_ts) if end_ts is not None else 0.0
-                records.append({"timestamp": ts, "type": "sleep", "value": duration, "unit": "sec"})
-
-        conn.close()
         return records
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
