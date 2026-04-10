@@ -18,6 +18,9 @@ import ollama
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
 
+from iphone import check_backup, parse_knowledge_db, parse_health
+from iOSbackup import iOSbackup as _IOSBackup
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
@@ -316,19 +319,19 @@ def generate_diary_entry(date: str, chunks: list[dict]) -> str:
     # Build a compact timeline for the prompt
     timeline = "\n".join(c["text"] for c in chunks)
 
-    prompt = f"""You are generating a concise personal logbook entry for {date} based on raw activity data.
-The tone should be professional, objective, and first-person, similar to a project dev-log or a ship's captain's log.
+    prompt = f"""You are writing a personal life and productivity diary entry for {date}.
+Below is a chronological timeline automatically logged from multiple sources: PC activity (ActivityWatch), iPhone app usage, and iPhone health data (steps, heart rate, sleep).
+Write a concise, honest diary entry (3-5 paragraphs) that:
+- Summarises what the person worked on, used their phone for, and how they felt physically (based on health data)
+- Notes any apparent focus sessions, distractions, or patterns across devices
+- Identifies the most and least productive parts of the day
+- Includes any notable health signals (sleep quality, step count, elevated heart rate)
+- Uses plain, first-person language as if the person is reflecting on their own day
 
-Structure the entry into 3-4 short paragraphs:
-- Chronological flow: Start with how the day/session began and move through major shifts.
-- Descriptive action: Describe what was being done (e.g., "Spent an hour troubleshooting Docker containers") rather than just listing apps.
-- Technical accuracy: Maintain specific details like filenames, CLI commands, or project names (e.g., "Blackbox").
-- Zero Introspection: Avoid words like "felt," "productive," "distracted," or "struggled." Focus entirely on the *what* and *when*.
-
-Activity timeline:
+Timeline (all sources, chronological):
 {timeline}
 
-Write only the logbook entry."""
+Write only the diary entry, no preamble."""
 
     response = ollama_client.chat(
         model=SUMMARY_MODEL,
@@ -379,6 +382,34 @@ def run_etl(target_date: datetime | None = None):
             all_chunks.extend(chunks)
         except Exception as e:
             log.error(f"  Error fetching {bucket_id}: {e}")
+
+    # ── iPhone backup ingestion ───────────────────────────────────────────────
+    try:
+        backup_info = check_backup()
+        if backup_info:
+            backuproot, udid = backup_info
+            password = os.getenv("IPHONE_BACKUP_PASSWORD", "")
+            backup = _IOSBackup(
+                udid=udid,
+                cleartextpassword=password,
+                backuproot=backuproot,
+            )
+            log.info(f"iPhone backup found: {udid} at {backuproot}")
+
+            app_events = parse_knowledge_db(backup, target_date)
+            log.info(f"  knowledgeC: {len(app_events)} foreground events")
+            all_chunks.extend(chunk_iphone_apps(app_events))
+
+            health_records = parse_health(backup, target_date)
+            log.info(f"  healthdb: {len(health_records)} records")
+            all_chunks.extend(chunk_iphone_health(health_records))
+        else:
+            log.info("No iPhone backup found — skipping iPhone data.")
+    except Exception as e:
+        log.warning(f"iPhone ingestion failed, continuing without it: {e}")
+
+    # ── Sort all sources by timestamp before upsert + diary ──────────────────
+    all_chunks.sort(key=lambda c: c["window_start"])
 
     # Upsert to Qdrant
     upsert_chunks(all_chunks)
