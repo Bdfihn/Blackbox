@@ -135,24 +135,40 @@ def generate_diary_entry(date: str, chunks: list[Chunk]) -> str:
 
     timeline = "\n".join(c.text for c in chunks)
 
-    prompt = f"""Write a concise diary entry for {date} based on the logs below.
+    prompt = f"""**Role**: You are a factual data summarizer.
 
-- Use plain, first-person language.
-- Describe the day chronologically, grouping related tasks into a clear progression.
-- Describe what I did, not exact data points. Summarize activities and tasks, not verbatim logs. Make reasonable inferences based on provided context for what I was doing.
-- ALWAYS explicitly note important activites like when I wake up and when and I sleep. You should infer these based on activity. Use phrases like "I woke up at..." and "I went to bed at..."
-- Avoid flowery adjectives, no guessing how I felt.
-- Write only the diary entry, no preamble.
+**Constraints**
+- Output: Plain text only.
+- Prohibited: Markdown formatting (no #, *, or -), emojis, and conversational filler.
+- Tone: Clinical, first-person, and objective.
+- Chronology: Process the timeline from start to finish.
+- Time: Use 12-hour AM/PM format (convert from 24-hour logs).
+- You must identify the first and last recorded events to state: "I woke up at [Time]..." and "I went to bed at [Time]..."
+- Do not include preamble or postscript.
 
-Example Output:
-I woke up around 9:00 AM and started the day with light movement, recording about 150 steps through the late morning. My physical activity remained low and sporadic throughout the afternoon until 4:00 PM, when I logged a more consistent walk of 406 steps. I recorded my highest period of movement between 6:00 PM and 7:00 PM, totaling 1,863 steps.
+**Logic**
+- Group individual log entries into broader activities
+- Summarize the nature of the work rather than quoting the logs.
 
-I began using my PC at 10:50 PM, starting with a session in a browser and an AI assistant. At 11:05 PM, I moved into the terminal to manage various containers, specifically pulling new data models and running several system updates.
 
-Through the rest of the hour, I performed several technical tasks: I executed a clean build for a data processing service, ran scripts to sync recent metrics, and renamed a local project directory. I spent the final hour of the night in a code editor and a browser, refining some scripts and reviewing the updated system interface. I finished working and prepared for sleep shortly after 12:00 AM.
+**TIMELINE**
+{timeline}
+**TIMELINE END**
 
-Timeline:
-{timeline}"""
+**Role**: You are a factual data summarizer.
+
+**Constraints**
+- Output: Plain text only.
+- Prohibited: Markdown formatting (no #, *, or -), emojis, and conversational filler.
+- Tone: Clinical, first-person, and objective.
+- Chronology: Process the timeline from start to finish.
+- You must identify the first and last recorded events to state: "I woke up at [Time]..." and "I went to bed at [Time]..."
+- Do not include preamble or postscript.
+
+**Logic**
+- Group individual log entries into broader activities
+- Summarize the nature of the work rather than quoting the logs.
+"""
 
     response = ollama_client.chat(
         model=SUMMARY_MODEL,

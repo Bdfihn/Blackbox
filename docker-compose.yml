@@ -12,7 +12,6 @@ services:
     build:
       context: ./etl
     container_name: blackbox-etl
-    restart: unless-stopped
     depends_on:
       - qdrant
     volumes:
@@ -39,7 +38,6 @@ services:
     build:
       context: ./query
     container_name: blackbox-query
-    restart: unless-stopped
     depends_on:
       - qdrant
     ports:
