@@ -17,7 +17,15 @@ import ollama
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
 
-from sources import ActivityWatchSource, IPhoneHealthSource, check_backup, day_bounds, Chunk
+from sources import (
+    ActivityWatchSource,
+    IPhoneHealthSource,
+    IPhoneSocialSource,
+    IPhonePhotosSource,
+    check_backup,
+    day_bounds,
+    Chunk,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -212,6 +220,8 @@ def run_etl(target_date: datetime | None = None):
             backup = _IOSBackup(udid=udid, cleartextpassword=password, backuproot=backuproot)
             log.info(f"iPhone backup found: {udid} at {backuproot}")
             sources.append(IPhoneHealthSource(backup, LOCAL_TZ))
+            sources.append(IPhoneSocialSource(backup, LOCAL_TZ))
+            sources.append(IPhonePhotosSource(backup, LOCAL_TZ, ollama_client))
         else:
             log.info("No iPhone backup found — skipping iPhone data.")
     except Exception as e:
