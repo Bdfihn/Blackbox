@@ -148,7 +148,7 @@ class IPhonePhotosSource:
 
         chunks = []
         for asset in records:
-            if asset["lat"] is not None:
+            if asset["lat"] is not None and asset["lon"] is not None:
                 kind_label = asset["kind"].capitalize()
                 chunks.append(Chunk(
                     window_start=asset["timestamp"].isoformat(),

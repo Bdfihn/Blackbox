@@ -113,3 +113,31 @@ def test_get_chunks_groups_into_15min_buckets():
     assert "Messages" in chunk.text
     assert chunk.metadata["event_count"] == 2
     assert set(chunk.metadata["contacts"]) == {"John Smith", "Jane Doe"}
+
+
+def test_parse_interactions_handles_missing_junction_table():
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE ZCONTACTS (Z_PK INTEGER PRIMARY KEY, ZDISPLAYNAME TEXT)")
+    conn.execute("""
+        CREATE TABLE ZINTERACTIONS (
+            Z_PK INTEGER PRIMARY KEY,
+            ZSTARTDATE REAL,
+            ZBUNDLEID TEXT,
+            ZDIRECTION INTEGER,
+            ZSENDER INTEGER
+        )
+    """)
+    # Z_2INTERACTIONRECIPIENT deliberately omitted
+    conn.execute("INSERT INTO ZCONTACTS VALUES (1, 'John Smith')")
+    conn.execute("INSERT INTO ZINTERACTIONS VALUES (1, ?, 'com.apple.MobileSMS', 0, 1)", (_TS_APPLE,))
+    conn.commit()
+
+    start = datetime(2024, 1, 15, 4, 0, tzinfo=LOCAL_TZ)
+    end = datetime(2024, 1, 16, 4, 0, tzinfo=LOCAL_TZ)
+
+    with patch("sources.iphone_social.open_backup_db", side_effect=lambda *a, **kw: _mock_db(conn)):
+        records = parse_interactions(None, start, end, LOCAL_TZ)
+
+    assert len(records) == 1
+    assert records[0]["sender_name"] == "John Smith"
+    assert records[0]["recipient_name"] is None
