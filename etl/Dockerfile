@@ -7,5 +7,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Run the scheduler which triggers etl.py nightly at 2am
-CMD ["python", "scheduler.py"]
+CMD ["python", "etl.py"]
