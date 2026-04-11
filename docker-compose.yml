@@ -7,13 +7,19 @@ services:
       - "6333:6333"
     volumes:
       - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/readyz"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   etl:
     build:
       context: ./etl
     container_name: blackbox-etl
     depends_on:
-      - qdrant
+      qdrant:
+        condition: service_healthy
     volumes:
       - ./diary:/app/diary
       - ./data:/app/data

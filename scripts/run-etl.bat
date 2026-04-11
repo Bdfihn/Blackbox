@@ -1,12 +1,9 @@
 @echo off
-:: Start Ollama if not already running
-docker compose -f "C:\Users\Bdfihn\Code\AI\docker-compose.yml" up -d
+:: Start Ollama and wait until healthy
+docker compose -f "C:\Users\Bdfihn\Code\AI\docker-compose.yml" up -d --wait
 
-:: Start Qdrant
-docker compose -f "C:\Users\Bdfihn\Code\Blackbox\docker-compose.yml" up -d qdrant
-
-:: Wait for services to be ready
-timeout /t 15 /nobreak >nul
+:: Start Qdrant and wait until healthy
+docker compose -f "C:\Users\Bdfihn\Code\Blackbox\docker-compose.yml" up -d qdrant --wait
 
 :: Run ETL (exits when done)
 docker compose -f "C:\Users\Bdfihn\Code\Blackbox\docker-compose.yml" run --rm etl
