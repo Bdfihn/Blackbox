@@ -330,30 +330,21 @@
   .diary-content p { font-size: 14px; line-height: 1.8; color: #b0b0b0; margin-bottom: 14px; }
   .diary-placeholder { color: #444; font-size: 14px; }
 
-  .timeline-toggle {
-    background: none;
-    border: 1px solid #2a2a2a;
-    color: #555;
-    font-size: 12px;
-    padding: 6px 14px;
-    border-radius: 6px;
-    cursor: pointer;
-    margin-top: 24px;
-    display: inline-block;
-    transition: all 0.15s;
-  }
-
-  .timeline-toggle:hover { border-color: #444; color: #999; }
-
-  /* activity panel: right column, hidden until toggled */
+  /* activity panel: right column */
   #activity-panel {
     width: 420px;
     flex-shrink: 0;
     border-left: 1px solid #222;
     overflow-y: auto;
-    padding: 20px 20px 20px 20px;
-    display: none;
+    padding: 20px;
     scrollbar-gutter: stable;
+  }
+
+  .activity-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
   }
 
   #activity-panel h4 {
@@ -361,8 +352,43 @@
     color: #555;
     text-transform: uppercase;
     letter-spacing: 0.8px;
-    margin-bottom: 12px;
   }
+
+  .activity-close-btn {
+    background: none;
+    border: none;
+    color: #444;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    transition: color 0.15s;
+  }
+
+  .activity-close-btn:hover { color: #888; }
+
+  .diary-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 10px 48px;
+    border-bottom: 1px solid #1a1a1a;
+    flex-shrink: 0;
+  }
+
+  .timeline-toggle {
+    background: none;
+    border: 1px solid #2a2a2a;
+    color: #555;
+    font-size: 12px;
+    padding: 5px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .timeline-toggle:hover { border-color: #444; color: #999; }
 
   .timeline-row {
     display: grid;
@@ -429,13 +455,21 @@
         <div style="padding:16px;color:#444;font-size:13px">Loading...</div>
       </div>
     </div>
-    <div class="diary-main">
-      <div class="diary-content" id="diary-content">
-        <div class="diary-placeholder">Select an entry to read.</div>
+    <div class="diary-main" style="flex-direction:column">
+      <div class="diary-toolbar">
+        <button class="timeline-toggle" id="timeline-toggle-btn" onclick="toggleTimeline()" disabled>Activity Log</button>
       </div>
-      <div id="activity-panel">
-        <h4>Activity Log</h4>
-        <div id="activity-rows"></div>
+      <div style="flex:1;display:flex;overflow:hidden">
+        <div class="diary-content" id="diary-content">
+          <div class="diary-placeholder">Select an entry to read.</div>
+        </div>
+        <div id="activity-panel">
+          <div class="activity-panel-header">
+            <h4>Activity Log</h4>
+            <button class="activity-close-btn" onclick="closeActivityPanel()" title="Hide">✕</button>
+          </div>
+          <div id="activity-rows"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -544,10 +578,17 @@
     content.dataset.date = date;
     content.innerHTML = '<div class="diary-placeholder">Loading...</div>';
 
+    const btn = document.getElementById('timeline-toggle-btn');
+    btn.disabled = true;
+    btn.textContent = 'Activity Log';
+
+    // Reset panel for new entry
+    document.getElementById('activity-panel').style.display = 'none';
+    document.getElementById('activity-rows').innerHTML = '';
+
     try {
       const res = await fetch(`/api/diary/${date}`);
       const data = await res.json();
-      // Render markdown-ish: convert # headers and paragraphs
       const html = data.content
         .split('\n')
         .map(line => {
@@ -556,31 +597,39 @@
           return `<p>${escHtml(line)}</p>`;
         })
         .join('');
-      // close activity panel when switching entries
-      closeActivityPanel();
-      content.innerHTML = (html || '<p style="color:#444">Empty entry.</p>') +
-        `<button class="timeline-toggle" id="timeline-toggle-btn" onclick="toggleTimeline('${date}')">View Activity Log</button>`;
+      content.innerHTML = html || '<p style="color:#444">Empty entry.</p>';
+      btn.disabled = false;
     } catch (e) {
       content.innerHTML = '<div class="diary-placeholder" style="color:#c44">Error loading entry.</div>';
+      return;
     }
+
+    // Auto-show activity log
+    await showTimeline(date);
   }
 
   function closeActivityPanel() {
     const panel = document.getElementById('activity-panel');
     panel.style.display = 'none';
-    document.getElementById('activity-rows').innerHTML = '';
     const btn = document.getElementById('timeline-toggle-btn');
-    if (btn) btn.textContent = 'View Activity Log';
+    btn.textContent = 'Activity Log';
   }
 
-  async function toggleTimeline(date) {
+  function toggleTimeline() {
+    const panel = document.getElementById('activity-panel');
+    const date = document.getElementById('diary-content').dataset.date;
+    if (!date) return;
+    if (panel.style.display === 'block') {
+      closeActivityPanel();
+    } else {
+      showTimeline(date);
+    }
+  }
+
+  async function showTimeline(date) {
     const panel = document.getElementById('activity-panel');
     const btn = document.getElementById('timeline-toggle-btn');
-
-    if (panel.style.display === 'flex' || panel.style.display === 'block') {
-      closeActivityPanel();
-      return;
-    }
+    const rowsEl = document.getElementById('activity-rows');
 
     btn.textContent = 'Loading...';
     btn.disabled = true;
@@ -588,7 +637,6 @@
     try {
       const res = await fetch(`/api/diary/${date}/timeline`);
       const data = await res.json();
-      const rowsEl = document.getElementById('activity-rows');
 
       if (!data.chunks.length) {
         rowsEl.innerHTML = '<div style="color:#444;font-size:12px;padding:8px 0">No activity chunks found.</div>';
@@ -605,8 +653,7 @@
       panel.style.display = 'block';
       btn.textContent = 'Hide Activity Log';
     } catch (err) {
-      document.getElementById('activity-rows').innerHTML =
-        `<div style="color:#c44;font-size:12px;padding:8px 0">Error: ${escHtml(err.message)}</div>`;
+      rowsEl.innerHTML = `<div style="color:#c44;font-size:12px;padding:8px 0">Error: ${escHtml(err.message)}</div>`;
       panel.style.display = 'block';
       btn.textContent = 'Hide Activity Log';
     } finally {
