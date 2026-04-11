@@ -18,6 +18,7 @@ class Chunk:
     source: str
     apps: list[str] = field(default_factory=list)
     total_secs: float = 0.0
+    metadata: dict = field(default_factory=dict)
 
 
 class DataSource(Protocol):

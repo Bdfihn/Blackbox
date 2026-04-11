@@ -109,6 +109,7 @@ def upsert_chunks(chunks: list[Chunk], date_str: str):
                 "total_secs":   chunk.total_secs,
                 "source":       chunk.source,
                 "date":         date_str,
+                "metadata":     chunk.metadata,
             }
         )
         points.append((chunk_id, point))
