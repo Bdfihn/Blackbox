@@ -7,7 +7,7 @@ import zoneinfo
 
 from PIL import Image
 
-from sources.iphone_photos import IPhonePhotosSource, parse_photos, _resize, _to_b64
+from sources.iphone_photos import IPhonePhotosSource, parse_photos, _resize, _to_b64, _reverse_geocode, _geocache
 from sources.iphone_backup import APPLE_EPOCH
 
 LOCAL_TZ = zoneinfo.ZoneInfo("America/New_York")
@@ -81,6 +81,72 @@ def test_to_b64_produces_valid_png():
     assert data[:8] == b"\x89PNG\r\n\x1a\n"  # PNG magic bytes
 
 
+# ── _reverse_geocode ─────────────────────────────────────────────────────────
+
+def _mock_location(address: dict):
+    loc = MagicMock()
+    loc.raw = {"address": address}
+    return loc
+
+
+def _call_reverse_geocode(address: dict) -> str | None:
+    key = (42.3601, -71.0589)
+    _geocache.pop(key, None)
+    with patch("sources.iphone_photos._geolocator") as mock_geo:
+        mock_geo.reverse.return_value = _mock_location(address)
+        result = _reverse_geocode(*key)
+    _geocache.pop(key, None)
+    return result
+
+
+def test_reverse_geocode_prefers_amenity():
+    result = _call_reverse_geocode({
+        "amenity": "Boston Athenaeum",
+        "neighbourhood": "Beacon Hill",
+        "city": "Boston",
+    })
+    assert result == "Boston Athenaeum, Boston"
+
+
+def test_reverse_geocode_falls_back_to_neighbourhood():
+    result = _call_reverse_geocode({
+        "neighbourhood": "Beacon Hill",
+        "city": "Boston",
+    })
+    assert result == "Beacon Hill, Boston"
+
+
+def test_reverse_geocode_falls_back_to_road():
+    result = _call_reverse_geocode({
+        "road": "Tremont Street",
+        "city": "Boston",
+    })
+    assert result == "Tremont Street, Boston"
+
+
+def test_reverse_geocode_omits_city_when_absent():
+    result = _call_reverse_geocode({
+        "neighbourhood": "Beacon Hill",
+    })
+    assert result == "Beacon Hill"
+
+
+def test_reverse_geocode_returns_none_when_no_specific_or_city():
+    result = _call_reverse_geocode({"country": "United States"})
+    assert result is None
+
+
+def test_reverse_geocode_caches_result():
+    key = (42.3601, -71.0589)
+    _geocache.pop(key, None)
+    with patch("sources.iphone_photos._geolocator") as mock_geo:
+        mock_geo.reverse.return_value = _mock_location({"neighbourhood": "South End", "city": "Boston"})
+        _reverse_geocode(*key)
+        _reverse_geocode(*key)
+    assert mock_geo.reverse.call_count == 1
+    _geocache.pop(key, None)
+
+
 # ── parse_photos ─────────────────────────────────────────────────────────────
 
 def test_parse_photos_returns_asset_in_window():
@@ -148,15 +214,15 @@ def test_get_chunks_emits_gps_chunk_with_place_name():
 
     with (
         patch("sources.iphone_photos.open_backup_db", side_effect=lambda *a, **kw: _mock_db(conn)),
-        patch("sources.iphone_photos._reverse_geocode", return_value="New York City, United States"),
+        patch("sources.iphone_photos._reverse_geocode", return_value="Downtown Crossing, Boston"),
     ):
         chunks = source.get_chunks(start, end)
 
     gps_chunks = [c for c in chunks if c.source == "iphone_gps"]
     assert len(gps_chunks) == 1
-    assert "New York City, United States" in gps_chunks[0].text
+    assert "Downtown Crossing, Boston" in gps_chunks[0].text
     assert gps_chunks[0].metadata["kind"] == "photo"
-    assert gps_chunks[0].metadata["place_name"] == "New York City, United States"
+    assert gps_chunks[0].metadata["place_name"] == "Downtown Crossing, Boston"
 
 
 def test_get_chunks_gps_chunk_falls_back_to_coords_when_geocode_fails():
