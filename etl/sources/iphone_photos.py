@@ -78,15 +78,20 @@ def _reverse_geocode(lat: float, lon: float) -> str | None:
             _geocache[key] = None
             return None
         addr = location.raw.get("address", {})
-        place = (
+        specific = (
+            addr.get("amenity")
+            or addr.get("building")
+            or addr.get("neighbourhood")
+            or addr.get("suburb")
+            or addr.get("quarter")
+            or addr.get("road")
+        )
+        city = (
             addr.get("city")
             or addr.get("town")
             or addr.get("village")
-            or addr.get("suburb")
-            or addr.get("county")
         )
-        country = addr.get("country")
-        name = ", ".join(filter(None, [place, country])) or None
+        name = ", ".join(filter(None, [specific, city])) or None
     except Exception as e:
         log.warning(f"Reverse geocode failed for {key}: {e}")
         name = None
