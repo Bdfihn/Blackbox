@@ -5,7 +5,6 @@ upserts to Qdrant, writes a diary .md file.
 """
 
 import os
-import sqlite3
 import hashlib
 import logging
 import zoneinfo
@@ -38,13 +37,11 @@ QDRANT_PORT    = int(os.getenv("QDRANT_PORT", 6333))
 OLLAMA_HOST    = os.getenv("OLLAMA_HOST", "localhost")
 OLLAMA_PORT    = int(os.getenv("OLLAMA_PORT", 11434))
 DIARY_DIR      = Path(os.getenv("DIARY_DIR", "/app/diary"))
-DB_PATH        = Path(os.getenv("DB_PATH", "/app/data/blackbox.db"))
 COLLECTION     = "blackbox"
 EMBED_MODEL    = "nomic-embed-text"
 SUMMARY_MODEL  = "gemma4:e4b"
 
 DIARY_DIR.mkdir(parents=True, exist_ok=True)
-DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 # ── Clients ───────────────────────────────────────────────────────────────────
 qdrant = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
@@ -62,35 +59,6 @@ def ensure_collection():
         log.info(f"Created Qdrant collection '{COLLECTION}'")
 
 
-def ensure_db():
-    """Create SQLite tracking table if it doesn't exist."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS ingested_chunks (
-            chunk_id TEXT PRIMARY KEY,
-            ingested_at TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-
-def already_ingested(chunk_id: str) -> bool:
-    conn = sqlite3.connect(DB_PATH)
-    row = conn.execute("SELECT 1 FROM ingested_chunks WHERE chunk_id = ?", (chunk_id,)).fetchone()
-    conn.close()
-    return row is not None
-
-
-def mark_ingested(chunk_id: str):
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute(
-        "INSERT OR IGNORE INTO ingested_chunks VALUES (?, ?)",
-        (chunk_id, datetime.utcnow().isoformat())
-    )
-    conn.commit()
-    conn.close()
-
 
 def embed(text: str) -> list[float]:
     """Embed a string using nomic-embed-text via Ollama."""
@@ -99,15 +67,16 @@ def embed(text: str) -> list[float]:
 
 
 def upsert_chunks(chunks: list[Chunk], date_str: str):
-    """Embed and upsert chunks into Qdrant, skipping already-ingested ones."""
+    """Embed and upsert chunks into Qdrant."""
+    if not chunks:
+        log.info("No chunks to upsert.")
+        return
+
     points = []
     for chunk in chunks:
         chunk_id = hashlib.md5(chunk.text.encode()).hexdigest()
-        if already_ingested(chunk_id):
-            continue
-
         vector = embed(chunk.text)
-        point = PointStruct(
+        points.append(PointStruct(
             id=chunk_id,
             vector=vector,
             payload={
@@ -119,21 +88,10 @@ def upsert_chunks(chunks: list[Chunk], date_str: str):
                 "date":         date_str,
                 "metadata":     chunk.metadata,
             }
-        )
-        points.append((chunk_id, point))
+        ))
 
-    if not points:
-        log.info("No new chunks to upsert.")
-        return
-
-    qdrant.upsert(
-        collection_name=COLLECTION,
-        points=[p for _, p in points]
-    )
-    for chunk_id, _ in points:
-        mark_ingested(chunk_id)
-
-    log.info(f"Upserted {len(points)} new chunks into Qdrant.")
+    qdrant.upsert(collection_name=COLLECTION, points=points)
+    log.info(f"Upserted {len(points)} chunks into Qdrant.")
 
 
 # ── Timeline preprocessing ────────────────────────────────────────────────────
@@ -243,7 +201,6 @@ def run_etl(target_date: datetime | None = None):
     log.info(f"Starting ETL for {date_str}")
 
     ensure_collection()
-    ensure_db()
 
     start, end = day_bounds(target_date)
 

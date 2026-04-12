@@ -55,7 +55,7 @@ def parse_interactions(
     end_local: datetime,
     local_tz: zoneinfo.ZoneInfo,
 ) -> list[dict]:
-    with open_backup_db(backup, "Library/InteractionC/interactionC.db") as conn:
+    with open_backup_db(backup, "Library/CoreDuet/People/interactionC.db") as conn:
         if conn is None:
             log.warning("interactionC.db not found in backup")
             return []
