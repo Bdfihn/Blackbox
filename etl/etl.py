@@ -136,6 +136,44 @@ def upsert_chunks(chunks: list[Chunk], date_str: str):
     log.info(f"Upserted {len(points)} new chunks into Qdrant.")
 
 
+# ── Timeline preprocessing ────────────────────────────────────────────────────
+def preprocess_chunks(chunks: list[Chunk]) -> list[Chunk]:
+    """
+    Reduce noise before diary generation:
+    1. Drop chunks under 30 seconds.
+    2. Merge consecutive chunks that share the same dominant app into one block.
+    """
+    filtered = [c for c in chunks if c.total_secs >= 30]
+
+    if not filtered:
+        return filtered
+
+    merged: list[Chunk] = []
+    current = filtered[0]
+
+    for nxt in filtered[1:]:
+        current_dominant = current.apps[0] if current.apps else None
+        nxt_dominant = nxt.apps[0] if nxt.apps else None
+
+        if current_dominant and current_dominant == nxt_dominant:
+            seen = set(current.apps)
+            extra = [a for a in nxt.apps if a not in seen]
+            current = Chunk(
+                window_start=current.window_start,
+                text=current.text + "\n" + nxt.text,
+                apps=current.apps + extra,
+                total_secs=current.total_secs + nxt.total_secs,
+                source=current.source,
+                metadata=current.metadata,
+            )
+        else:
+            merged.append(current)
+            current = nxt
+
+    merged.append(current)
+    return merged
+
+
 # ── Diary generation ──────────────────────────────────────────────────────────
 def generate_diary_entry(date: str, chunks: list[Chunk]) -> str:
     """Use Gemma to write a human-readable diary entry from the day's chunks."""
@@ -236,7 +274,9 @@ def run_etl(target_date: datetime | None = None):
     upsert_chunks(all_chunks, date_str)
 
     log.info("Generating diary entry...")
-    diary_content = generate_diary_entry(date_str, all_chunks)
+    diary_chunks = preprocess_chunks(all_chunks)
+    log.info(f"Preprocessed {len(all_chunks)} chunks → {len(diary_chunks)} for diary.")
+    diary_content = generate_diary_entry(date_str, diary_chunks)
     write_diary(date_str, diary_content)
 
     log.info(f"ETL complete for {date_str}. {len(all_chunks)} chunks processed.")
