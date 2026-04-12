@@ -8,7 +8,7 @@ import zoneinfo
 from PIL import Image
 
 from sources.iphone_photos import IPhonePhotosSource, parse_photos, _resize, _to_b64
-from sources.iphone_health import APPLE_EPOCH
+from sources.iphone_backup import APPLE_EPOCH
 
 LOCAL_TZ = zoneinfo.ZoneInfo("America/New_York")
 
@@ -135,7 +135,7 @@ def test_parse_photos_null_duration_defaults_to_zero():
 
 # ── IPhonePhotosSource.get_chunks ────────────────────────────────────────────
 
-def test_get_chunks_emits_gps_chunk_when_gps_present():
+def test_get_chunks_emits_gps_chunk_with_place_name():
     conn = _make_photos_db()
     start = datetime(2024, 1, 15, 4, 0, tzinfo=LOCAL_TZ)
     end = datetime(2024, 1, 16, 4, 0, tzinfo=LOCAL_TZ)
@@ -146,14 +146,41 @@ def test_get_chunks_emits_gps_chunk_when_gps_present():
 
     source = IPhonePhotosSource(mock_backup, LOCAL_TZ, mock_ollama)
 
-    with patch("sources.iphone_photos.open_backup_db", side_effect=lambda *a, **kw: _mock_db(conn)):
+    with (
+        patch("sources.iphone_photos.open_backup_db", side_effect=lambda *a, **kw: _mock_db(conn)),
+        patch("sources.iphone_photos._reverse_geocode", return_value="New York City, United States"),
+    ):
+        chunks = source.get_chunks(start, end)
+
+    gps_chunks = [c for c in chunks if c.source == "iphone_gps"]
+    assert len(gps_chunks) == 1
+    assert "New York City, United States" in gps_chunks[0].text
+    assert gps_chunks[0].metadata["kind"] == "photo"
+    assert gps_chunks[0].metadata["place_name"] == "New York City, United States"
+
+
+def test_get_chunks_gps_chunk_falls_back_to_coords_when_geocode_fails():
+    conn = _make_photos_db()
+    start = datetime(2024, 1, 15, 4, 0, tzinfo=LOCAL_TZ)
+    end = datetime(2024, 1, 16, 4, 0, tzinfo=LOCAL_TZ)
+
+    mock_ollama = MagicMock()
+    mock_backup = MagicMock()
+    mock_backup.getFileDecryptedCopy.return_value = None
+
+    source = IPhonePhotosSource(mock_backup, LOCAL_TZ, mock_ollama)
+
+    with (
+        patch("sources.iphone_photos.open_backup_db", side_effect=lambda *a, **kw: _mock_db(conn)),
+        patch("sources.iphone_photos._reverse_geocode", return_value=None),
+    ):
         chunks = source.get_chunks(start, end)
 
     gps_chunks = [c for c in chunks if c.source == "iphone_gps"]
     assert len(gps_chunks) == 1
     assert "40.7128" in gps_chunks[0].text
     assert "74.0060" in gps_chunks[0].text
-    assert gps_chunks[0].metadata["kind"] == "photo"
+    assert gps_chunks[0].metadata["place_name"] is None
 
 
 def test_get_chunks_skips_gps_chunk_when_no_gps():
@@ -187,7 +214,10 @@ def test_get_chunks_vision_failure_does_not_abort_gps():
 
     source = IPhonePhotosSource(mock_backup, LOCAL_TZ, mock_ollama)
 
-    with patch("sources.iphone_photos.open_backup_db", side_effect=lambda *a, **kw: _mock_db(conn)):
+    with (
+        patch("sources.iphone_photos.open_backup_db", side_effect=lambda *a, **kw: _mock_db(conn)),
+        patch("sources.iphone_photos._reverse_geocode", return_value=None),
+    ):
         chunks = source.get_chunks(start, end)
 
     gps_chunks = [c for c in chunks if c.source == "iphone_gps"]
