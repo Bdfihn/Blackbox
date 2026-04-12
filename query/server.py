@@ -23,6 +23,24 @@ DIARY_DIR = Path(os.getenv("DIARY_DIR", "/app/diary"))
 qdrant    = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
 
 
+def _scroll_all(date_filter: Filter, *, with_payload: bool) -> list:
+    points = []
+    offset = None
+    while True:
+        results, offset = qdrant.scroll(
+            collection_name=COLLECTION,
+            scroll_filter=date_filter,
+            limit=1000,
+            offset=offset,
+            with_payload=with_payload,
+            with_vectors=False,
+        )
+        points.extend(results)
+        if offset is None:
+            break
+    return points
+
+
 @app.route("/")
 def index():
     return send_from_directory("static", "index.html")
@@ -55,6 +73,8 @@ def list_diary():
 @app.route("/api/diary/<date>", methods=["GET"])
 def get_diary(date: str):
     """Return the content of a specific diary entry."""
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+        return jsonify({"error": "Invalid date format"}), 400
     path = DIARY_DIR / f"{date}.md"
     if not path.exists():
         return jsonify({"error": "Not found"}), 404
@@ -68,27 +88,15 @@ def get_timeline(date: str):
         return jsonify({"error": "Invalid date format"}), 400
 
     date_filter = Filter(must=[FieldCondition(key="date", match=MatchValue(value=date))])
-    chunks = []
-    offset = None
-    while True:
-        results, offset = qdrant.scroll(
-            collection_name=COLLECTION,
-            scroll_filter=date_filter,
-            limit=1000,
-            offset=offset,
-            with_payload=True,
-            with_vectors=False,
-        )
-        for p in results:
-            pl = p.payload
-            chunks.append({
-                "time": pl.get("window_start", "")[:16].replace("T", " "),
-                "apps": pl.get("apps", []),
-                "text": pl.get("text", ""),
-            })
-        if offset is None:
-            break
-
+    points = _scroll_all(date_filter, with_payload=True)
+    chunks = [
+        {
+            "time": p.payload.get("window_start", "")[:16].replace("T", " "),
+            "apps": p.payload.get("apps", []),
+            "text": p.payload.get("text", ""),
+        }
+        for p in points
+    ]
     chunks.sort(key=lambda c: c["time"])
     return jsonify({"date": date, "chunks": chunks})
 
@@ -101,20 +109,7 @@ def delete_diary(date: str):
 
     # 1. Collect point IDs from Qdrant before deleting
     date_filter = Filter(must=[FieldCondition(key="date", match=MatchValue(value=date))])
-    chunk_ids = []
-    offset = None
-    while True:
-        results, offset = qdrant.scroll(
-            collection_name=COLLECTION,
-            scroll_filter=date_filter,
-            limit=1000,
-            offset=offset,
-            with_payload=False,
-            with_vectors=False,
-        )
-        chunk_ids.extend(str(p.id) for p in results)
-        if offset is None:
-            break
+    chunk_ids = [str(p.id) for p in _scroll_all(date_filter, with_payload=False)]
 
     # 2. Delete from Qdrant
     if chunk_ids:

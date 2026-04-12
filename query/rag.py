@@ -10,7 +10,7 @@ from datetime import datetime
 
 import ollama
 from qdrant_client import QdrantClient
-from qdrant_client.models import Filter, FieldCondition, Range
+from qdrant_client.models import Filter, FieldCondition, MatchValue, Range
 
 log = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ def search(question: str, top_k: int = TOP_K, date_filter: str | None = None) ->
     query_filter = None
     if date_filter:
         query_filter = Filter(
-            must=[FieldCondition(key="date", match={"value": date_filter})]
+            must=[FieldCondition(key="date", match=MatchValue(value=date_filter))]
         )
 
     results = qdrant.search(

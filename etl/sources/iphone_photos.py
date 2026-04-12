@@ -8,13 +8,14 @@ import tempfile
 import zoneinfo
 from datetime import datetime
 
+import ollama
 from PIL import Image
 from pillow_heif import register_heif_opener
 
 register_heif_opener()
 
 from .base import Chunk
-from .iphone_health import apple_ts, open_backup_db
+from .iphone_backup import apple_ts, open_backup_db
 
 log = logging.getLogger(__name__)
 
@@ -137,7 +138,7 @@ def parse_photos(
 
 
 class IPhonePhotosSource:
-    def __init__(self, backup, local_tz: zoneinfo.ZoneInfo, ollama_client):
+    def __init__(self, backup, local_tz: zoneinfo.ZoneInfo, ollama_client: ollama.Client):
         self._backup = backup
         self._local_tz = local_tz
         self._ollama = ollama_client
