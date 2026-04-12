@@ -9,6 +9,7 @@ import zoneinfo
 from datetime import datetime
 
 import ollama
+from geopy.geocoders import Nominatim
 from PIL import Image
 from pillow_heif import register_heif_opener
 
@@ -61,6 +62,36 @@ def _coord_str(lat: float, lon: float) -> str:
     lat_dir = "N" if lat >= 0 else "S"
     lon_dir = "E" if lon >= 0 else "W"
     return f"{abs(lat):.4f}°{lat_dir}, {abs(lon):.4f}°{lon_dir}"
+
+
+_geocache: dict[tuple[float, float], str | None] = {}
+_geolocator = Nominatim(user_agent="blackbox-etl")
+
+
+def _reverse_geocode(lat: float, lon: float) -> str | None:
+    key = (round(lat, 4), round(lon, 4))
+    if key in _geocache:
+        return _geocache[key]
+    try:
+        location = _geolocator.reverse(key, language="en", timeout=10)
+        if location is None:
+            _geocache[key] = None
+            return None
+        addr = location.raw.get("address", {})
+        place = (
+            addr.get("city")
+            or addr.get("town")
+            or addr.get("village")
+            or addr.get("suburb")
+            or addr.get("county")
+        )
+        country = addr.get("country")
+        name = ", ".join(filter(None, [place, country])) or None
+    except Exception as e:
+        log.warning(f"Reverse geocode failed for {key}: {e}")
+        name = None
+    _geocache[key] = name
+    return name
 
 
 def _extract_video_frames(video_path: str, duration: float) -> list[Image.Image]:
@@ -151,12 +182,14 @@ class IPhonePhotosSource:
         for asset in records:
             if asset["lat"] is not None and asset["lon"] is not None:
                 kind_label = asset["kind"].capitalize()
+                place_name = _reverse_geocode(asset["lat"], asset["lon"])
+                location_text = place_name if place_name else _coord_str(asset["lat"], asset["lon"])
                 chunks.append(Chunk(
                     window_start=asset["timestamp"].isoformat(),
                     text=(
                         f"[{asset['timestamp'].strftime('%Y-%m-%d %H:%M')}] "
                         f"{kind_label} taken at "
-                        f"{_coord_str(asset['lat'], asset['lon'])} "
+                        f"{location_text} "
                         f"({asset['filename']})."
                     ),
                     apps=[],
@@ -165,6 +198,7 @@ class IPhonePhotosSource:
                     metadata={
                         "lat": asset["lat"],
                         "lon": asset["lon"],
+                        "place_name": place_name,
                         "filename": asset["filename"],
                         "kind": asset["kind"],
                     },
