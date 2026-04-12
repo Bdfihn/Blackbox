@@ -101,7 +101,7 @@ def preprocess_chunks(chunks: list[Chunk]) -> list[Chunk]:
     1. Drop chunks under 30 seconds.
     2. Merge consecutive chunks that share the same dominant app into one block.
     """
-    filtered = [c for c in chunks if c.total_secs >= 30]
+    filtered = [c for c in chunks if c.total_secs == 0 or c.total_secs >= 30]
 
     if not filtered:
         return filtered
@@ -204,7 +204,7 @@ def run_etl(target_date: datetime | None = None):
 
     start, end = day_bounds(target_date)
 
-    sources = [ActivityWatchSource(AW_BASE, LOCAL_TZ)]
+    sources: list[DataSource] = [ActivityWatchSource(AW_BASE, LOCAL_TZ)]
 
     try:
         from iOSbackup import iOSbackup as _IOSBackup
