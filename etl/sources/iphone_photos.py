@@ -18,7 +18,7 @@ from .iphone_health import apple_ts, open_backup_db
 
 log = logging.getLogger(__name__)
 
-VISION_MODEL = "gemma4:27b"
+VISION_MODEL = "gemma4:e4b"
 VISION_PROMPT = (
     "Describe this image in one sentence. Include what is shown, "
     "where it appears to be taken, and what activity it represents."

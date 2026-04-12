@@ -23,7 +23,6 @@ services:
         condition: service_healthy
     volumes:
       - ./diary:/app/diary
-      - ./data:/app/data
       - "C:/Users/Bdfihn/AppData/Roaming/Apple Computer/MobileSync/Backup:/app/iphone_backup:ro"
       - "C:/Users/Bdfihn/Apple/MobileSync/Backup:/app/iphone_backup2:ro"
     environment:
@@ -51,7 +50,6 @@ services:
       - "8080:8080"
     volumes:
       - ./diary:/app/diary
-      - ./data:/app/data
     environment:
       - QDRANT_HOST=blackbox-qdrant
       - QDRANT_PORT=6333

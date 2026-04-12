@@ -5,7 +5,6 @@ Serves the web interface at port 8080 and exposes /api/query.
 
 import os
 import re
-import sqlite3
 import logging
 from pathlib import Path
 from flask import Flask, request, jsonify, send_from_directory
@@ -21,7 +20,6 @@ app = Flask(__name__, static_folder="static")
 CORS(app)
 
 DIARY_DIR = Path(os.getenv("DIARY_DIR", "/app/diary"))
-DB_PATH   = Path(os.getenv("DB_PATH", "/app/data/blackbox.db"))
 qdrant    = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
 
 
@@ -123,18 +121,7 @@ def delete_diary(date: str):
         qdrant.delete(collection_name=COLLECTION, points_selector=chunk_ids)
         log.info(f"Deleted {len(chunk_ids)} Qdrant points for {date}")
 
-    # 3. Delete from SQLite tracking DB
-    if chunk_ids and DB_PATH.exists():
-        conn = sqlite3.connect(DB_PATH)
-        conn.executemany(
-            "DELETE FROM ingested_chunks WHERE chunk_id = ?",
-            [(cid,) for cid in chunk_ids]
-        )
-        conn.commit()
-        conn.close()
-        log.info(f"Removed {len(chunk_ids)} SQLite records for {date}")
-
-    # 4. Delete diary file
+    # 3. Delete diary file
     path = DIARY_DIR / f"{date}.md"
     if path.exists():
         path.unlink()
