@@ -3,3 +3,5 @@ data/
 diary/
 docs/
 notes.txt
+__pycache__/
+*.pyc

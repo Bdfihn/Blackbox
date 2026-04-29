@@ -16,6 +16,7 @@ from pillow_heif import register_heif_opener
 register_heif_opener()
 
 from .base import Chunk
+from .face_index import FaceIndex
 from .iphone_backup import apple_ts, open_backup_db, to_apple_secs
 
 log = logging.getLogger(__name__)
@@ -175,11 +176,19 @@ def parse_photos(
 
 
 class IPhonePhotosSource:
-    def __init__(self, backup, local_tz: zoneinfo.ZoneInfo, ollama_client: ollama.Client, llm_model: str):
+    def __init__(
+        self,
+        backup,
+        local_tz: zoneinfo.ZoneInfo,
+        ollama_client: ollama.Client,
+        llm_model: str,
+        faces_dir: str | None = None,
+    ):
         self._backup = backup
         self._local_tz = local_tz
         self._ollama = ollama_client
         self._llm_model = llm_model
+        self._faces = FaceIndex(faces_dir)
 
     def get_chunks(self, start: datetime, end: datetime) -> list[Chunk]:
         records = parse_photos(self._backup, start, end, self._local_tz)
@@ -250,6 +259,8 @@ class IPhonePhotosSource:
             if not file_path:
                 return None
 
+            people = self._faces.identify(file_path) if asset["kind"] == "photo" else []
+
             if asset["kind"] == "video":
                 images = _extract_video_frames(file_path, asset["duration"])
                 if not images:
@@ -267,9 +278,10 @@ class IPhonePhotosSource:
             description = response["response"].strip()
 
             ts = asset["timestamp"]
+            people_suffix = f" [with: {', '.join(people)}]" if people else ""
             return Chunk(
                 window_start=ts.isoformat(),
-                text=f"[{ts.strftime('%Y-%m-%d %H:%M')}] {kind_label}: {description}",
+                text=f"[{ts.strftime('%Y-%m-%d %H:%M')}] {kind_label}: {description}{people_suffix}",
                 apps=[],
                 total_secs=0,
                 source="iphone_photos",
@@ -280,6 +292,7 @@ class IPhonePhotosSource:
                     "kind": asset["kind"],
                     "width": asset["width"],
                     "height": asset["height"],
+                    "people": people,
                 },
             )
         finally:

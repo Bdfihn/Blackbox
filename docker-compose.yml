@@ -27,6 +27,7 @@ services:
       - "C:/Users/Bdfihn/Apple/MobileSync/Backup:/app/iphone_backup2:ro"
       - "C:/Users/Bdfihn/Code:/app/git_repos:ro"
       - "C:/Users/Bdfihn/.claude/projects:/app/claude_transcripts:ro"
+      - "C:/Users/Bdfihn/Pictures/Blackbox:/app/faces:ro"
     environment:
       - QDRANT_HOST=blackbox-qdrant
       - QDRANT_PORT=6333
@@ -43,6 +44,7 @@ services:
       - CLAUDE_TRANSCRIPTS=/app/claude_transcripts
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - SELF_PHONE=${SELF_PHONE:-}
+      - FACES_DIR=/app/faces
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
