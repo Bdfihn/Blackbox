@@ -47,7 +47,7 @@ COLLECTION     = "blackbox"
 EMBED_MODEL    = "nomic-embed-text"
 LLM_MODEL      = "gemma4:e4b"
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 GEMINI_MODEL   = "gemini-2.5-flash"
 
 DIARY_DIR.mkdir(parents=True, exist_ok=True)
