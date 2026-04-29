@@ -10,8 +10,7 @@ from pathlib import Path
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from qdrant_client import QdrantClient
-from qdrant_client.models import Filter, FieldCondition, MatchValue
-from rag import answer, QDRANT_HOST, QDRANT_PORT, COLLECTION
+from rag import answer, _date_filter, QDRANT_HOST, QDRANT_PORT, COLLECTION
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -22,8 +21,14 @@ CORS(app)
 DIARY_DIR = Path(os.getenv("DIARY_DIR", "/app/diary"))
 qdrant    = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
 
+_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
-def _scroll_all(date_filter: Filter, *, with_payload: bool) -> list:
+
+def _valid_date(date: str) -> bool:
+    return bool(_DATE_RE.fullmatch(date))
+
+
+def _scroll_all(date_filter, *, with_payload: bool) -> list:
     points = []
     offset = None
     while True:
@@ -73,7 +78,7 @@ def list_diary():
 @app.route("/api/diary/<date>", methods=["GET"])
 def get_diary(date: str):
     """Return the content of a specific diary entry."""
-    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+    if not _valid_date(date):
         return jsonify({"error": "Invalid date format"}), 400
     path = DIARY_DIR / f"{date}.md"
     if not path.exists():
@@ -84,11 +89,10 @@ def get_diary(date: str):
 @app.route("/api/diary/<date>/timeline", methods=["GET"])
 def get_timeline(date: str):
     """Return all activity chunks for a date, sorted by time."""
-    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+    if not _valid_date(date):
         return jsonify({"error": "Invalid date format"}), 400
 
-    qdrant_filter = Filter(must=[FieldCondition(key="date", match=MatchValue(value=date))])
-    points = _scroll_all(qdrant_filter, with_payload=True)
+    points = _scroll_all(_date_filter(date), with_payload=True)
     chunks = [
         {
             "time": p.payload.get("window_start", "")[:16].replace("T", " "),
@@ -104,19 +108,15 @@ def get_timeline(date: str):
 @app.route("/api/diary/<date>", methods=["DELETE"])
 def delete_diary(date: str):
     """Delete a diary entry and all associated vector + tracking data."""
-    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+    if not _valid_date(date):
         return jsonify({"error": "Invalid date format"}), 400
 
-    # 1. Collect point IDs from Qdrant before deleting
-    qdrant_filter = Filter(must=[FieldCondition(key="date", match=MatchValue(value=date))])
-    chunk_ids = [str(p.id) for p in _scroll_all(qdrant_filter, with_payload=False)]
+    chunk_ids = [str(p.id) for p in _scroll_all(_date_filter(date), with_payload=False)]
 
-    # 2. Delete from Qdrant
     if chunk_ids:
         qdrant.delete(collection_name=COLLECTION, points_selector=chunk_ids)
         log.info(f"Deleted {len(chunk_ids)} Qdrant points for {date}")
 
-    # 3. Delete diary file
     path = DIARY_DIR / f"{date}.md"
     if path.exists():
         path.unlink()

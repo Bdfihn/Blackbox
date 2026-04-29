@@ -7,7 +7,7 @@ from .iphone_backup import apple_ts, open_backup_db, to_apple_secs
 
 log = logging.getLogger(__name__)
 
-BUCKET_SECS = 3600
+BUCKET_MINUTES = 60
 
 # healthdb_secure.sqlite data_type constants (observed iOS 16-17)
 _STEPS_TYPE = 7   # HKQuantityTypeIdentifierStepCount
@@ -101,7 +101,7 @@ class IPhoneHealthSource:
                 window_start=hour.isoformat(),
                 text=f"[{hour.strftime('%Y-%m-%d %H:%M')}] Health summary: {', '.join(parts)}.",
                 apps=[],
-                total_secs=BUCKET_SECS,
+                total_secs=BUCKET_MINUTES * 60,
                 source="iphone_health",
             ))
 
