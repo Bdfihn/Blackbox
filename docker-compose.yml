@@ -41,6 +41,7 @@ services:
       - IPHONE_BACKUP_PASSWORD=Overbook6-Around5-Viability3-Deviation7
       - GIT_REPOS_ROOT=/app/git_repos
       - CLAUDE_TRANSCRIPTS=/app/claude_transcripts
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

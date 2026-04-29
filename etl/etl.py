@@ -180,7 +180,7 @@ TIMELINE END
         response = _gemini_model.generate_content(prompt)
         return f"# {date}\n\n{response.text}\n"
 
-    log.warning("GEMINI_API_KEY not set — falling back to Ollama for diary generation")
+    log.warning("GOOGLE_API_KEY not set — falling back to Ollama for diary generation")
     response = ollama_client.chat(
         model=LLM_MODEL,
         messages=[{"role": "user", "content": prompt}]
