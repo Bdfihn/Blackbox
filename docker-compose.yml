@@ -26,6 +26,7 @@ services:
       - "C:/Users/Bdfihn/AppData/Roaming/Apple Computer/MobileSync/Backup:/app/iphone_backup:ro"
       - "C:/Users/Bdfihn/Apple/MobileSync/Backup:/app/iphone_backup2:ro"
       - "C:/Users/Bdfihn/Code:/app/git_repos:ro"
+      - "C:/Users/Bdfihn/.claude/projects:/app/claude_transcripts:ro"
     environment:
       - QDRANT_HOST=blackbox-qdrant
       - QDRANT_PORT=6333
@@ -39,6 +40,7 @@ services:
       - IPHONE_BACKUP_PATH2=/app/iphone_backup2
       - IPHONE_BACKUP_PASSWORD=Overbook6-Around5-Viability3-Deviation7
       - GIT_REPOS_ROOT=/app/git_repos
+      - CLAUDE_TRANSCRIPTS=/app/claude_transcripts
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
