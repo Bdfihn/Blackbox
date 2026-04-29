@@ -17,7 +17,11 @@ class FaceIndex:
             log.info(f"Faces dir {faces_dir!r} not found — face recognition disabled")
 
     def _load(self, faces_dir: str) -> None:
-        import face_recognition
+        try:
+            import face_recognition
+        except (ImportError, SystemExit):
+            log.warning("face_recognition unavailable — face recognition disabled")
+            return
 
         for person in sorted(os.listdir(faces_dir)):
             person_dir = os.path.join(faces_dir, person)
@@ -50,6 +54,9 @@ class FaceIndex:
             return []
         try:
             import face_recognition
+        except (ImportError, SystemExit):
+            return []
+        try:
             img = face_recognition.load_image_file(image_path)
             unknown_encs = face_recognition.face_encodings(img)
             if not unknown_encs:
