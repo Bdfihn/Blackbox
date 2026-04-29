@@ -16,7 +16,7 @@ _SUMMARY_PROMPT = (
     "Start directly with the work, e.g. \"Debugged the timezone handling...\""
 )
 
-_MAX_CONTENT_CHARS = 4000
+_MAX_CONTENT_CHARS = 16000
 
 
 def _parse_ts(raw: str) -> datetime | None:
@@ -41,6 +41,9 @@ class ClaudeCodeSource:
         # Collect in-window time ranges for all candidate files.
         file_ranges: list[tuple[Path, datetime, datetime]] = []
         for jsonl_file in sorted(self._root.rglob("*.jsonl")):
+            if jsonl_file.parent.name == "subagents":
+                log.debug(f"  claude_code: skipping subagent file {jsonl_file.name}")
+                continue
             try:
                 ts = self._window_timestamps(jsonl_file, start, end)
                 if ts:

@@ -42,6 +42,7 @@ services:
       - GIT_REPOS_ROOT=/app/git_repos
       - CLAUDE_TRANSCRIPTS=/app/claude_transcripts
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - SELF_PHONE=${SELF_PHONE:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
