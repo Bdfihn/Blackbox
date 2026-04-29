@@ -88,7 +88,7 @@ class ActivityWatchSource:
             ]
             text = (
                 f"[{window_start.strftime('%Y-%m-%d %H:%M')}] "
-                f"PC activity for {chunk_minutes} minutes. "
+                f"PC activity for {self._chunk_minutes} minutes. "
                 f"Top apps: {', '.join(f'{a}({round(s/60,1)}m)' for a, s in top_apps)}. "
                 f"Details: {'; '.join(descriptions[:10])}"
             )
