@@ -2,13 +2,18 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Protocol
 
-DAY_START_HOUR = 4  # Day starts/ends at 4 AM
+_DAY_START_HOUR = 4  # Day starts/ends at 4 AM
 
 
 def day_bounds(date: datetime) -> tuple[datetime, datetime]:
     """Return (start, end) for a logical day: date @ 04:00 → next day @ 04:00."""
-    start = date.replace(hour=DAY_START_HOUR, minute=0, second=0, microsecond=0)
+    start = date.replace(hour=_DAY_START_HOUR, minute=0, second=0, microsecond=0)
     return start, start + timedelta(days=1)
+
+
+def floor_dt(ts: datetime, minutes: int) -> datetime:
+    """Floor a datetime to the nearest multiple of `minutes`."""
+    return ts.replace(minute=(ts.minute // minutes) * minutes, second=0, microsecond=0)
 
 
 @dataclass

@@ -20,7 +20,7 @@ from .iphone_backup import apple_ts, open_backup_db
 
 log = logging.getLogger(__name__)
 
-VISION_MODEL = "gemma4:e4b"
+LLM_MODEL = "gemma4:e4b"
 VISION_PROMPT = (
     "Describe this image in one sentence. Include what is shown, "
     "where it appears to be taken, and what activity it represents."
@@ -268,7 +268,7 @@ class IPhonePhotosSource:
             b64_images = [_to_b64(img) for img in resized]
 
             response = self._ollama.generate(
-                model=VISION_MODEL,
+                model=LLM_MODEL,
                 prompt=VISION_PROMPT,
                 images=b64_images,
             )

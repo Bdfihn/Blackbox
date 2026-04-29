@@ -1,4 +1,4 @@
-from .base import Chunk, DataSource, day_bounds, DAY_START_HOUR
+from .base import Chunk, DataSource, day_bounds, floor_dt
 from .activitywatch import ActivityWatchSource
 from .iphone_backup import check_backup
 from .iphone_health import IPhoneHealthSource
@@ -9,7 +9,7 @@ __all__ = [
     "Chunk",
     "DataSource",
     "day_bounds",
-    "DAY_START_HOUR",
+    "floor_dt",
     "ActivityWatchSource",
     "check_backup",
     "IPhoneHealthSource",

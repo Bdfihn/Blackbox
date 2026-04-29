@@ -4,8 +4,9 @@ from datetime import datetime, timezone
 from unittest.mock import patch
 import zoneinfo
 
-from sources.iphone_social import IPhoneSocialSource, parse_interactions, _floor_15, _readable_app
-from sources.iphone_health import APPLE_EPOCH
+from sources.base import floor_dt
+from sources.iphone_social import IPhoneSocialSource, parse_interactions, _readable_app
+from sources.iphone_backup import APPLE_EPOCH
 
 LOCAL_TZ = zoneinfo.ZoneInfo("America/New_York")
 
@@ -60,15 +61,15 @@ def test_readable_app_unknown_bundle():
     assert _readable_app("com.example.CustomApp") == "com.example.CustomApp"
 
 
-def test_floor_15():
+def test_floor_dt_15min():
     tz = zoneinfo.ZoneInfo("America/New_York")
     ts = datetime(2024, 1, 15, 14, 23, 0, tzinfo=tz)
-    assert _floor_15(ts).minute == 15
-    assert _floor_15(ts).second == 0
+    assert floor_dt(ts, 15).minute == 15
+    assert floor_dt(ts, 15).second == 0
 
-    assert _floor_15(datetime(2024, 1, 15, 14, 0, 0, tzinfo=tz)).minute == 0
-    assert _floor_15(datetime(2024, 1, 15, 14, 29, 0, tzinfo=tz)).minute == 15
-    assert _floor_15(datetime(2024, 1, 15, 14, 45, 0, tzinfo=tz)).minute == 45
+    assert floor_dt(datetime(2024, 1, 15, 14, 0, 0, tzinfo=tz), 15).minute == 0
+    assert floor_dt(datetime(2024, 1, 15, 14, 29, 0, tzinfo=tz), 15).minute == 15
+    assert floor_dt(datetime(2024, 1, 15, 14, 45, 0, tzinfo=tz), 15).minute == 45
 
 
 def test_parse_interactions_returns_records_in_window():

@@ -5,7 +5,7 @@ from datetime import datetime
 
 import requests
 
-from .base import Chunk
+from .base import Chunk, floor_dt
 
 log = logging.getLogger(__name__)
 
@@ -70,11 +70,7 @@ class ActivityWatchSource:
             app = data.get("app", "unknown")
             title = data.get("title", "")
 
-            floored = ts.replace(
-                minute=(ts.minute // chunk_minutes) * chunk_minutes,
-                second=0,
-                microsecond=0,
-            )
+            floored = floor_dt(ts, chunk_minutes)
             buckets.setdefault(floored, []).append({"app": app, "title": title, "duration_secs": duration})
 
         chunks = []

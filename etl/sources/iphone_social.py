@@ -3,7 +3,7 @@ import sqlite3
 import zoneinfo
 from datetime import datetime
 
-from .base import Chunk
+from .base import Chunk, floor_dt
 from .iphone_backup import apple_ts, open_backup_db
 
 log = logging.getLogger(__name__)
@@ -21,13 +21,6 @@ _BUNDLE_NAMES = {
 def _readable_app(bundle_id: str) -> str:
     return _BUNDLE_NAMES.get(bundle_id, bundle_id)
 
-
-def _floor_15(ts: datetime) -> datetime:
-    return ts.replace(
-        minute=(ts.minute // BUCKET_MINUTES) * BUCKET_MINUTES,
-        second=0,
-        microsecond=0,
-    )
 
 
 def _junction_cols(conn: sqlite3.Connection) -> tuple[str | None, str | None]:
@@ -118,7 +111,7 @@ class IPhoneSocialSource:
 
         buckets: dict[datetime, list[dict]] = {}
         for r in records:
-            key = _floor_15(r["timestamp"])
+            key = floor_dt(r["timestamp"], BUCKET_MINUTES)
             buckets.setdefault(key, []).append(r)
 
         chunks = []
