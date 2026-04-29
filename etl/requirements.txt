@@ -1,4 +1,5 @@
 requests==2.31.0
+google-generativeai==0.8.5
 qdrant-client==1.9.1
 ollama==0.2.1
 pytest==7.4.3
