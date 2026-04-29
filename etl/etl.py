@@ -140,39 +140,43 @@ def generate_diary_entry(date: str, chunks: list[Chunk]) -> str:
 
     timeline = "\n".join(c.text for c in chunks)
 
-    prompt = f"""**Role**: You are a factual data summarizer.
+    prompt = f"""You are writing a personal daily diary entry from automatically logged activity data.
 
-**Constraints**
-- Output: Plain text only.
-- Prohibited: Markdown formatting (no #, *, or -), emojis, and conversational filler.
-- Tone: Clinical, first-person, and objective.
-- Chronology: Process the timeline from start to finish.
-- Time: Use 12-hour AM/PM format (convert from 24-hour logs).
-- You must identify the first and last recorded events to state: "I woke up at [Time]..." and "I went to bed at [Time]..."
-- Do not include preamble or postscript.
+Write 3-5 paragraphs in first person. Be specific and concrete — name actual places, people, apps, and activities from the data. Do not paraphrase into vague categories like "outdoor activities" or "digital pursuits."
 
-**Logic**
-- Group individual log entries into broader activities
-- Summarize the nature of the work rather than quoting the logs.
+Rules:
+- Plain text only. No markdown, no bullet points, no headers.
+- No advice, editorializing, or filler phrases.
+- Follow the timeline chronologically.
+- Use 12-hour AM/PM time format.
+- If health/sleep data is present, use it to anchor wake/sleep times. Otherwise use the first and last non-LockApp PC activity.
+- For terminal titles like, that is the specific task being worked on — name it.
+- For VS Code titles like "script.py - Project Name", that means coding on the project with that tile.
+- For photo clusters at a named location, describe what was happening there based on the photo descriptions.
+- For social interaction entries, name the contacts and platforms when available.
+- Group related entries into coherent activity blocks — don't list every event individually.
+- Health step counts and activity summaries should be woven in naturally, not listed separately.
 
-
-**TIMELINE**
+TIMELINE:
 {timeline}
-**TIMELINE END**
+TIMELINE END
 
-**Role**: You are a factual data summarizer.
+You are writing a personal daily diary entry from automatically logged activity data.
 
-**Constraints**
-- Output: Plain text only.
-- Prohibited: Markdown formatting (no #, *, or -), emojis, and conversational filler.
-- Tone: Clinical, first-person, and objective.
-- Chronology: Process the timeline from start to finish.
-- You must identify the first and last recorded events to state: "I woke up at [Time]..." and "I went to bed at [Time]..."
-- Do not include preamble or postscript.
+Write 3-5 paragraphs in first person. Be specific and concrete — name actual places, people, apps, and activities from the data. Do not paraphrase into vague categories like "outdoor activities" or "digital pursuits."
 
-**Logic**
-- Group individual log entries into broader activities
-- Summarize the nature of the work rather than quoting the logs.
+Rules:
+- Plain text only. No markdown, no bullet points, no headers.
+- No advice, editorializing, or filler phrases.
+- Follow the timeline chronologically.
+- Use 12-hour AM/PM time format.
+- If health/sleep data is present, use it to anchor wake/sleep times. Otherwise use the first and last non-LockApp PC activity.
+- For terminal titles like, that is the specific task being worked on — name it.
+- For VS Code titles like "script.py - Project Name", that means coding on the project with that tile.
+- For photo clusters at a named location, describe what was happening there based on the photo descriptions.
+- For social interaction entries, name the contacts and platforms when available.
+- Group related entries into coherent activity blocks — don't list every event individually.
+- Health step counts and activity summaries should be woven in naturally, not listed separately.
 """
 
     response = ollama_client.chat(
