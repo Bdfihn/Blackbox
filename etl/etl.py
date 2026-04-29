@@ -186,7 +186,12 @@ def run_etl(target_date: datetime | None = None):
     since the nightly job runs just after the 04:00 day boundary).
     """
     if target_date is None:
-        target_date = datetime.now(LOCAL_TZ) - timedelta(days=1)
+        date_env = os.getenv("ETL_DATE")
+        target_date = (
+            datetime.strptime(date_env, "%Y-%m-%d").replace(tzinfo=LOCAL_TZ)
+            if date_env
+            else datetime.now(LOCAL_TZ) - timedelta(days=1)
+        )
 
     date_str = target_date.strftime("%Y-%m-%d")
     log.info(f"Starting ETL for {date_str}")
