@@ -13,6 +13,11 @@ def apple_ts(apple_secs: float) -> datetime:
     return APPLE_EPOCH + timedelta(seconds=apple_secs)
 
 
+def to_apple_secs(dt: datetime) -> float:
+    """Convert a datetime to Apple CoreData seconds (seconds since 2001-01-01 UTC)."""
+    return (dt.astimezone(timezone.utc) - APPLE_EPOCH).total_seconds()
+
+
 def check_backup() -> tuple[str, str] | None:
     """Scan configured backup paths for a valid iOS backup.
 

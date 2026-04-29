@@ -1,9 +1,9 @@
 import logging
 import zoneinfo
-from datetime import datetime, timezone
+from datetime import datetime
 
-from .base import Chunk
-from .iphone_backup import APPLE_EPOCH, apple_ts, open_backup_db
+from .base import Chunk, floor_dt
+from .iphone_backup import apple_ts, open_backup_db, to_apple_secs
 
 log = logging.getLogger(__name__)
 
@@ -15,10 +15,6 @@ _HR_TYPE    = 5   # HKQuantityTypeIdentifierHeartRate
 _SLEEP_TYPE = 63  # HKCategoryTypeIdentifierSleepAnalysis
 
 
-def _to_apple_secs(dt: datetime) -> float:
-    return (dt.astimezone(timezone.utc) - APPLE_EPOCH).total_seconds()
-
-
 def parse_health(backup, start_local: datetime, end_local: datetime, local_tz: zoneinfo.ZoneInfo) -> list[dict]:
     """Extract steps, heart rate, and sleep from healthdb_secure.sqlite for the given window.
 
@@ -27,8 +23,8 @@ def parse_health(backup, start_local: datetime, end_local: datetime, local_tz: z
                  value (float), unit (str)}.
         For 'sleep', value is duration in seconds (end_date − start_date).
     """
-    apple_start = _to_apple_secs(start_local)
-    apple_end = _to_apple_secs(end_local)
+    apple_start = to_apple_secs(start_local)
+    apple_end = to_apple_secs(end_local)
 
     with open_backup_db(backup, "Health/healthdb_secure.sqlite") as conn:
         if conn is None:
@@ -89,7 +85,7 @@ class IPhoneHealthSource:
                     source="iphone_health",
                 ))
             else:
-                hour_key = ts.replace(minute=0, second=0, microsecond=0)
+                hour_key = floor_dt(ts, 60)
                 if rtype == "steps":
                     hourly_steps[hour_key] = hourly_steps.get(hour_key, 0) + r["value"]
                 else:

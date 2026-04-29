@@ -6,7 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import zoneinfo
-from datetime import datetime, timezone
+from datetime import datetime
 
 import ollama
 from geopy.geocoders import Nominatim
@@ -16,7 +16,7 @@ from pillow_heif import register_heif_opener
 register_heif_opener()
 
 from .base import Chunk
-from .iphone_backup import APPLE_EPOCH, apple_ts, open_backup_db
+from .iphone_backup import apple_ts, open_backup_db, to_apple_secs
 
 log = logging.getLogger(__name__)
 
@@ -128,8 +128,8 @@ def parse_photos(
     end_local: datetime,
     local_tz: zoneinfo.ZoneInfo,
 ) -> list[dict]:
-    apple_start = (start_local.astimezone(timezone.utc) - APPLE_EPOCH).total_seconds()
-    apple_end = (end_local.astimezone(timezone.utc) - APPLE_EPOCH).total_seconds()
+    apple_start = to_apple_secs(start_local)
+    apple_end = to_apple_secs(end_local)
 
     with open_backup_db(backup, "Media/PhotoData/Photos.sqlite") as conn:
         if conn is None:

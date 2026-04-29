@@ -161,8 +161,6 @@ Rules:
 TIMELINE:
 {timeline}
 TIMELINE END
-
-{instructions}
 """
 
     response = ollama_client.chat(

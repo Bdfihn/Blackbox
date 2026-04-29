@@ -5,7 +5,7 @@ from collections import Counter
 from datetime import datetime
 
 from .base import Chunk, floor_dt
-from .iphone_backup import apple_ts, open_backup_db
+from .iphone_backup import apple_ts, open_backup_db, to_apple_secs
 
 log = logging.getLogger(__name__)
 
@@ -49,6 +49,9 @@ def parse_interactions(
     end_local: datetime,
     local_tz: zoneinfo.ZoneInfo,
 ) -> list[dict]:
+    apple_start = to_apple_secs(start_local)
+    apple_end = to_apple_secs(end_local)
+
     with open_backup_db(backup, "Library/CoreDuet/People/interactionC.db") as conn:
         if conn is None:
             log.warning("interactionC.db not found in backup")
@@ -69,7 +72,8 @@ def parse_interactions(
                 LEFT JOIN Z_2INTERACTIONRECIPIENT jr
                     ON jr.{interactions_col} = i.Z_PK
                 LEFT JOIN ZCONTACTS c2 ON c2.Z_PK = jr.{recipients_col}
-            """).fetchall()
+                WHERE i.ZSTARTDATE >= ? AND i.ZSTARTDATE < ?
+            """, (apple_start, apple_end)).fetchall()
         else:
             rows = conn.execute("""
                 SELECT
@@ -80,20 +84,19 @@ def parse_interactions(
                     NULL AS recipient_name
                 FROM ZINTERACTIONS i
                 LEFT JOIN ZCONTACTS c1 ON c1.Z_PK = i.ZSENDER
-            """).fetchall()
+                WHERE i.ZSTARTDATE >= ? AND i.ZSTARTDATE < ?
+            """, (apple_start, apple_end)).fetchall()
 
-        records = []
-        for start_date, bundle_id, direction, sender_name, recipient_name in rows:
-            ts = apple_ts(start_date).astimezone(local_tz)
-            if start_local <= ts < end_local:
-                records.append({
-                    "timestamp": ts,
-                    "bundle_id": bundle_id or "",
-                    "direction": direction,
-                    "sender_name": sender_name,
-                    "recipient_name": recipient_name,
-                })
-        return records
+        return [
+            {
+                "timestamp": apple_ts(start_date).astimezone(local_tz),
+                "bundle_id": bundle_id or "",
+                "direction": direction,
+                "sender_name": sender_name,
+                "recipient_name": recipient_name,
+            }
+            for start_date, bundle_id, direction, sender_name, recipient_name in rows
+        ]
 
 
 class IPhoneSocialSource:
