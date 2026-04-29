@@ -210,7 +210,7 @@ def test_get_chunks_emits_gps_chunk_with_place_name():
     mock_backup = MagicMock()
     mock_backup.getFileDecryptedCopy.return_value = None  # extraction fails → no vision chunk
 
-    source = IPhonePhotosSource(mock_backup, LOCAL_TZ, mock_ollama)
+    source = IPhonePhotosSource(mock_backup, LOCAL_TZ, mock_ollama, "test-model")
 
     with (
         patch("sources.iphone_photos.open_backup_db", side_effect=lambda *a, **kw: _mock_db(conn)),
@@ -234,7 +234,7 @@ def test_get_chunks_gps_chunk_falls_back_to_coords_when_geocode_fails():
     mock_backup = MagicMock()
     mock_backup.getFileDecryptedCopy.return_value = None
 
-    source = IPhonePhotosSource(mock_backup, LOCAL_TZ, mock_ollama)
+    source = IPhonePhotosSource(mock_backup, LOCAL_TZ, mock_ollama, "test-model")
 
     with (
         patch("sources.iphone_photos.open_backup_db", side_effect=lambda *a, **kw: _mock_db(conn)),
@@ -258,7 +258,7 @@ def test_get_chunks_skips_gps_chunk_when_no_gps():
     mock_backup = MagicMock()
     mock_backup.getFileDecryptedCopy.return_value = None
 
-    source = IPhonePhotosSource(mock_backup, LOCAL_TZ, mock_ollama)
+    source = IPhonePhotosSource(mock_backup, LOCAL_TZ, mock_ollama, "test-model")
 
     with patch("sources.iphone_photos.open_backup_db", side_effect=lambda *a, **kw: _mock_db(conn)):
         chunks = source.get_chunks(start, end)
@@ -278,7 +278,7 @@ def test_get_chunks_vision_failure_does_not_abort_gps():
     # Return a path that doesn't exist so Image.open raises
     mock_backup.getFileDecryptedCopy.return_value = {"decryptedFilePath": "/nonexistent/file.heic"}
 
-    source = IPhonePhotosSource(mock_backup, LOCAL_TZ, mock_ollama)
+    source = IPhonePhotosSource(mock_backup, LOCAL_TZ, mock_ollama, "test-model")
 
     with (
         patch("sources.iphone_photos.open_backup_db", side_effect=lambda *a, **kw: _mock_db(conn)),
