@@ -1,6 +1,7 @@
 import logging
 import os
 import zoneinfo
+from collections import Counter
 from datetime import datetime
 
 import requests
@@ -60,7 +61,6 @@ class ActivityWatchSource:
         if not events:
             return []
 
-        chunk_minutes = self._chunk_minutes
         buckets: dict[datetime, list] = {}
 
         for event in events:
@@ -70,16 +70,16 @@ class ActivityWatchSource:
             app = data.get("app", "unknown")
             title = data.get("title", "")
 
-            floored = floor_dt(ts, chunk_minutes)
+            floored = floor_dt(ts, self._chunk_minutes)
             buckets.setdefault(floored, []).append({"app": app, "title": title, "duration_secs": duration})
 
         chunks = []
         for window_start, items in sorted(buckets.items()):
             total = sum(i["duration_secs"] for i in items)
-            app_totals: dict[str, float] = {}
+            app_totals: Counter[str] = Counter()
             for i in items:
-                app_totals[i["app"]] = app_totals.get(i["app"], 0) + i["duration_secs"]
-            top_apps = sorted(app_totals.items(), key=lambda x: x[1], reverse=True)[:5]
+                app_totals[i["app"]] += i["duration_secs"]
+            top_apps = app_totals.most_common(5)
 
             descriptions = [
                 f"{i['app']}: '{i['title']}' ({round(i['duration_secs'] / 60, 1)}m)"

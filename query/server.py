@@ -87,8 +87,8 @@ def get_timeline(date: str):
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
         return jsonify({"error": "Invalid date format"}), 400
 
-    date_filter = Filter(must=[FieldCondition(key="date", match=MatchValue(value=date))])
-    points = _scroll_all(date_filter, with_payload=True)
+    qdrant_filter = Filter(must=[FieldCondition(key="date", match=MatchValue(value=date))])
+    points = _scroll_all(qdrant_filter, with_payload=True)
     chunks = [
         {
             "time": p.payload.get("window_start", "")[:16].replace("T", " "),
@@ -108,8 +108,8 @@ def delete_diary(date: str):
         return jsonify({"error": "Invalid date format"}), 400
 
     # 1. Collect point IDs from Qdrant before deleting
-    date_filter = Filter(must=[FieldCondition(key="date", match=MatchValue(value=date))])
-    chunk_ids = [str(p.id) for p in _scroll_all(date_filter, with_payload=False)]
+    qdrant_filter = Filter(must=[FieldCondition(key="date", match=MatchValue(value=date))])
+    chunk_ids = [str(p.id) for p in _scroll_all(qdrant_filter, with_payload=False)]
 
     # 2. Delete from Qdrant
     if chunk_ids:

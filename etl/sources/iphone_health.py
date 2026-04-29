@@ -1,9 +1,9 @@
 import logging
 import zoneinfo
-from datetime import datetime
+from datetime import datetime, timezone
 
 from .base import Chunk
-from .iphone_backup import apple_ts, open_backup_db
+from .iphone_backup import APPLE_EPOCH, apple_ts, open_backup_db
 
 log = logging.getLogger(__name__)
 
@@ -15,6 +15,10 @@ _HR_TYPE    = 5   # HKQuantityTypeIdentifierHeartRate
 _SLEEP_TYPE = 63  # HKCategoryTypeIdentifierSleepAnalysis
 
 
+def _to_apple_secs(dt: datetime) -> float:
+    return (dt.astimezone(timezone.utc) - APPLE_EPOCH).total_seconds()
+
+
 def parse_health(backup, start_local: datetime, end_local: datetime, local_tz: zoneinfo.ZoneInfo) -> list[dict]:
     """Extract steps, heart rate, and sleep from healthdb_secure.sqlite for the given window.
 
@@ -23,41 +27,34 @@ def parse_health(backup, start_local: datetime, end_local: datetime, local_tz: z
                  value (float), unit (str)}.
         For 'sleep', value is duration in seconds (end_date − start_date).
     """
+    apple_start = _to_apple_secs(start_local)
+    apple_end = _to_apple_secs(end_local)
+
     with open_backup_db(backup, "Health/healthdb_secure.sqlite") as conn:
         if conn is None:
             raise FileNotFoundError("healthdb_secure.sqlite not found in backup")
         records = []
 
-        for start_ts, qty in conn.execute(
-            "SELECT s.start_date, qs.quantity "
+        for start_ts, qty, data_type in conn.execute(
+            "SELECT s.start_date, qs.quantity, s.data_type "
             "FROM samples s JOIN quantity_samples qs ON qs.ROWID = s.ROWID "
-            "WHERE s.data_type = ?",
-            (_STEPS_TYPE,),
+            "WHERE s.data_type IN (?, ?) AND s.start_date >= ? AND s.start_date < ?",
+            (_STEPS_TYPE, _HR_TYPE, apple_start, apple_end),
         ).fetchall():
             ts = apple_ts(start_ts).astimezone(local_tz)
-            if start_local <= ts < end_local:
-                records.append({"timestamp": ts, "type": "steps", "value": qty, "unit": "count"})
-
-        for start_ts, qty in conn.execute(
-            "SELECT s.start_date, qs.quantity "
-            "FROM samples s JOIN quantity_samples qs ON qs.ROWID = s.ROWID "
-            "WHERE s.data_type = ?",
-            (_HR_TYPE,),
-        ).fetchall():
-            ts = apple_ts(start_ts).astimezone(local_tz)
-            if start_local <= ts < end_local:
-                records.append({"timestamp": ts, "type": "heart_rate", "value": qty, "unit": "count/min"})
+            rtype = "steps" if data_type == _STEPS_TYPE else "heart_rate"
+            unit = "count" if data_type == _STEPS_TYPE else "count/min"
+            records.append({"timestamp": ts, "type": rtype, "value": qty, "unit": unit})
 
         for start_ts, end_ts, _val in conn.execute(
             "SELECT s.start_date, s.end_date, cs.value "
             "FROM samples s JOIN category_samples cs ON cs.ROWID = s.ROWID "
-            "WHERE s.data_type = ?",
-            (_SLEEP_TYPE,),
+            "WHERE s.data_type = ? AND s.start_date >= ? AND s.start_date < ?",
+            (_SLEEP_TYPE, apple_start, apple_end),
         ).fetchall():
             ts = apple_ts(start_ts).astimezone(local_tz)
-            if start_local <= ts < end_local:
-                duration = (end_ts - start_ts) if end_ts is not None else 0.0
-                records.append({"timestamp": ts, "type": "sleep", "value": duration, "unit": "sec"})
+            duration = (end_ts - start_ts) if end_ts is not None else 0.0
+            records.append({"timestamp": ts, "type": "sleep", "value": duration, "unit": "sec"})
 
         return records
 
@@ -81,9 +78,19 @@ class IPhoneHealthSource:
         hourly_hr: dict[datetime, list[float]] = {}
 
         for r in records:
-            if r["type"] in ("steps", "heart_rate"):
-                hour_key = r["timestamp"].replace(minute=0, second=0, microsecond=0)
-                if r["type"] == "steps":
+            ts = r["timestamp"]
+            rtype = r["type"]
+            if rtype == "sleep":
+                chunks.append(Chunk(
+                    window_start=ts.isoformat(),
+                    text=f"[{ts.strftime('%Y-%m-%d %H:%M')}] Sleep session: {round(r['value'] / 3600, 1)} hours.",
+                    apps=[],
+                    total_secs=int(r["value"]),
+                    source="iphone_health",
+                ))
+            else:
+                hour_key = ts.replace(minute=0, second=0, microsecond=0)
+                if rtype == "steps":
                     hourly_steps[hour_key] = hourly_steps.get(hour_key, 0) + r["value"]
                 else:
                     hourly_hr.setdefault(hour_key, []).append(r["value"])
@@ -101,16 +108,5 @@ class IPhoneHealthSource:
                 total_secs=BUCKET_SECS,
                 source="iphone_health",
             ))
-
-        for r in records:
-            if r["type"] == "sleep":
-                ts = r["timestamp"]
-                chunks.append(Chunk(
-                    window_start=ts.isoformat(),
-                    text=f"[{ts.strftime('%Y-%m-%d %H:%M')}] Sleep session: {round(r['value'] / 3600, 1)} hours.",
-                    apps=[],
-                    total_secs=int(r["value"]),
-                    source="iphone_health",
-                ))
 
         return chunks
