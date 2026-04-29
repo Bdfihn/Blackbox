@@ -19,6 +19,13 @@ _SUMMARY_PROMPT = (
 _MAX_CONTENT_CHARS = 4000
 
 
+def _parse_ts(raw: str) -> datetime | None:
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return None
+
+
 class ClaudeCodeSource:
     def __init__(self, transcripts_root: str, local_tz: zoneinfo.ZoneInfo, ollama_client, llm_model: str):
         self._root = Path(transcripts_root)
@@ -31,17 +38,60 @@ class ClaudeCodeSource:
             log.warning(f"Claude transcripts root not found: {self._root}")
             return []
 
-        chunks = []
+        # Collect in-window time ranges for all candidate files.
+        file_ranges: list[tuple[Path, datetime, datetime]] = []
         for jsonl_file in sorted(self._root.rglob("*.jsonl")):
+            try:
+                ts = self._window_timestamps(jsonl_file, start, end)
+                if ts:
+                    file_ranges.append((jsonl_file, min(ts), max(ts)))
+            except Exception as exc:
+                log.error(f"  claude_code error scanning {jsonl_file.name}: {exc}")
+
+        # Within each project directory, skip sessions whose in-window range is
+        # strictly contained inside a larger sibling session — those are subagents.
+        def is_contained(path: Path, s: datetime, e: datetime) -> bool:
+            for other, os, oe in file_ranges:
+                if other.parent != path.parent or other == path:
+                    continue
+                if os <= s and oe >= e and (os, oe) != (s, e):
+                    return True
+            return False
+
+        chunks = []
+        for jsonl_file, s, e in file_ranges:
+            if is_contained(jsonl_file, s, e):
+                log.debug(f"  claude_code: skipping contained session {jsonl_file.name}")
+                continue
             try:
                 chunk = self._process_session(jsonl_file, start, end)
                 if chunk:
                     chunks.append(chunk)
-            except Exception as e:
-                log.error(f"  claude_code error in {jsonl_file.name}: {e}")
+            except Exception as exc:
+                log.error(f"  claude_code error in {jsonl_file.name}: {exc}")
 
         log.info(f"  claude_code: {len(chunks)} sessions")
         return chunks
+
+    def _window_timestamps(self, path: Path, start: datetime, end: datetime) -> list[datetime]:
+        """Return all timestamps in the file that fall within [start, end)."""
+        result = []
+        with path.open(encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    r = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                raw = r.get("timestamp")
+                if not raw:
+                    continue
+                ts = _parse_ts(raw)
+                if ts and start <= ts.astimezone(self._local_tz) < end:
+                    result.append(ts)
+        return result
 
     def _process_session(self, path: Path, start: datetime, end: datetime) -> Chunk | None:
         records = []
@@ -58,26 +108,23 @@ class ClaudeCodeSource:
         if not records:
             return None
 
-        timestamps = []
+        # Only use timestamps within the target window for duration and anchor time.
+        # This prevents resumed sessions from showing absurd multi-day durations.
+        window_ts = []
         for r in records:
             raw = r.get("timestamp")
-            if raw:
-                try:
-                    timestamps.append(datetime.fromisoformat(raw.replace("Z", "+00:00")))
-                except ValueError:
-                    pass
+            if not raw:
+                continue
+            ts = _parse_ts(raw)
+            if ts and start <= ts.astimezone(self._local_tz) < end:
+                window_ts.append(ts)
 
-        if not timestamps:
+        if not window_ts:
             return None
 
-        session_start = min(timestamps)
-        session_end = max(timestamps)
-
+        session_start = min(window_ts)
+        session_end = max(window_ts)
         local_start = session_start.astimezone(self._local_tz)
-        local_end = session_end.astimezone(self._local_tz)
-
-        if not any(start <= ts.astimezone(self._local_tz) < end for ts in timestamps):
-            return None
 
         user_texts, assistant_texts = [], []
         for r in records:
