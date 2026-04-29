@@ -11,6 +11,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     liblapack-dev \
     && rm -rf /var/lib/apt/lists/*
 
+RUN pip install --no-cache-dir setuptools
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 RUN python -c "import face_recognition_models; import face_recognition; print('face_recognition OK')"
