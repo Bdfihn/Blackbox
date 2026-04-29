@@ -50,9 +50,7 @@ ollama_client = ollama.Client(host=f"http://{OLLAMA_HOST}:{OLLAMA_PORT}")
 
 
 def ensure_collection():
-    """Create Qdrant collection if it doesn't exist."""
-    existing = [c.name for c in qdrant.get_collections().collections]
-    if COLLECTION not in existing:
+    if not qdrant.collection_exists(COLLECTION):
         qdrant.create_collection(
             collection_name=COLLECTION,
             vectors_config=VectorParams(size=768, distance=Distance.COSINE),
@@ -208,7 +206,7 @@ def run_etl(target_date: datetime | None = None):
             log.info(f"iPhone backup found: {udid} at {backuproot}")
             sources.append(IPhoneHealthSource(backup, LOCAL_TZ))
             sources.append(IPhoneSocialSource(backup, LOCAL_TZ))
-            sources.append(IPhonePhotosSource(backup, LOCAL_TZ, ollama_client))
+            sources.append(IPhonePhotosSource(backup, LOCAL_TZ, ollama_client, LLM_MODEL))
         else:
             log.info("No iPhone backup found — skipping iPhone data.")
     except Exception as e:

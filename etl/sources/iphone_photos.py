@@ -6,7 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import zoneinfo
-from datetime import datetime
+from datetime import datetime, timezone
 
 import ollama
 from geopy.geocoders import Nominatim
@@ -16,11 +16,10 @@ from pillow_heif import register_heif_opener
 register_heif_opener()
 
 from .base import Chunk
-from .iphone_backup import apple_ts, open_backup_db
+from .iphone_backup import APPLE_EPOCH, apple_ts, open_backup_db
 
 log = logging.getLogger(__name__)
 
-LLM_MODEL = "gemma4:e4b"
 VISION_PROMPT = (
     "Describe this image in one sentence. Include what is shown, "
     "where it appears to be taken, and what activity it represents."
@@ -109,7 +108,7 @@ def _extract_video_frames(video_path: str, duration: float) -> list[Image.Image]
     tmpdir = tempfile.mkdtemp()
     try:
         for offset in offsets:
-            ts = duration * offset if duration > 0 else 0.0
+            ts = duration * offset
             out_path = os.path.join(tmpdir, f"frame_{offset}.png")
             result = subprocess.run(
                 ["ffmpeg", "-ss", str(ts), "-i", video_path, "-vframes", "1", "-y", out_path],
@@ -129,6 +128,9 @@ def parse_photos(
     end_local: datetime,
     local_tz: zoneinfo.ZoneInfo,
 ) -> list[dict]:
+    apple_start = (start_local.astimezone(timezone.utc) - APPLE_EPOCH).total_seconds()
+    apple_end = (end_local.astimezone(timezone.utc) - APPLE_EPOCH).total_seconds()
+
     with open_backup_db(backup, "Media/PhotoData/Photos.sqlite") as conn:
         if conn is None:
             log.warning("Photos.sqlite not found in backup")
@@ -152,32 +154,32 @@ def parse_photos(
                 ZHEIGHT
             FROM {table}
             WHERE ZDATECREATED IS NOT NULL
+              AND ZDATECREATED >= ? AND ZDATECREATED < ?
             ORDER BY ZDATECREATED
-        """).fetchall()
+        """, (apple_start, apple_end)).fetchall()
 
         records = []
         for created, lat, lon, filename, directory, kind, duration, width, height in rows:
-            ts = apple_ts(created).astimezone(local_tz)
-            if start_local <= ts < end_local:
-                records.append({
-                    "timestamp": ts,
-                    "lat": lat if (lat is not None and lat != -180.0) else None,
-                    "lon": lon if (lon is not None and lon != -180.0) else None,
-                    "filename": filename,
-                    "directory": directory or "",
-                    "kind": "video" if kind == 1 else "photo",
-                    "duration": duration or 0.0,
-                    "width": width,
-                    "height": height,
-                })
+            records.append({
+                "timestamp": apple_ts(created).astimezone(local_tz),
+                "lat": lat if (lat is not None and lat != -180.0) else None,
+                "lon": lon if (lon is not None and lon != -180.0) else None,
+                "filename": filename,
+                "directory": directory or "",
+                "kind": "video" if kind == 1 else "photo",
+                "duration": duration or 0.0,
+                "width": width,
+                "height": height,
+            })
         return records
 
 
 class IPhonePhotosSource:
-    def __init__(self, backup, local_tz: zoneinfo.ZoneInfo, ollama_client: ollama.Client):
+    def __init__(self, backup, local_tz: zoneinfo.ZoneInfo, ollama_client: ollama.Client, llm_model: str):
         self._backup = backup
         self._local_tz = local_tz
         self._ollama = ollama_client
+        self._llm_model = llm_model
 
     def get_chunks(self, start: datetime, end: datetime) -> list[Chunk]:
         records = parse_photos(self._backup, start, end, self._local_tz)
@@ -185,8 +187,9 @@ class IPhonePhotosSource:
 
         chunks = []
         for asset in records:
+            kind_label = asset["kind"].capitalize()
+
             if asset["lat"] is not None and asset["lon"] is not None:
-                kind_label = asset["kind"].capitalize()
                 place_name = _reverse_geocode(asset["lat"], asset["lon"])
                 location_text = place_name if place_name else _coord_str(asset["lat"], asset["lon"])
                 chunks.append(Chunk(
@@ -210,7 +213,7 @@ class IPhonePhotosSource:
                 ))
 
             try:
-                vision_chunk = self._vision_chunk(asset)
+                vision_chunk = self._vision_chunk(asset, kind_label)
                 if vision_chunk:
                     chunks.append(vision_chunk)
             except Exception as e:
@@ -219,15 +222,6 @@ class IPhonePhotosSource:
         return chunks
 
     def _extract_file(self, asset: dict, tmpdir: str) -> str | None:
-        """Extract asset from backup, trying canonical path then fallback.
-
-        The relativePath for camera roll items is typically:
-          Media/DCIM/100APPLE/IMG_1234.HEIC
-        i.e. "Media/" + ZDIRECTORY + "/" + ZFILENAME.
-
-        If that path isn't found in the manifest, we retry without the
-        "Media/" prefix in case the backup stores the path differently.
-        """
         directory = asset["directory"]
         filename = asset["filename"]
 
@@ -249,7 +243,7 @@ class IPhonePhotosSource:
         )
         return None
 
-    def _vision_chunk(self, asset: dict) -> Chunk | None:
+    def _vision_chunk(self, asset: dict, kind_label: str) -> Chunk | None:
         tmpdir = tempfile.mkdtemp()
         try:
             file_path = self._extract_file(asset, tmpdir)
@@ -261,20 +255,17 @@ class IPhonePhotosSource:
                 if not images:
                     log.warning(f"No frames extracted from {asset['filename']}")
                     return None
+                b64_images = [_to_b64(_resize(img)) for img in images]
             else:
-                images = [Image.open(file_path)]
-
-            resized = [_resize(img) for img in images]
-            b64_images = [_to_b64(img) for img in resized]
+                b64_images = [_to_b64(_resize(Image.open(file_path)))]
 
             response = self._ollama.generate(
-                model=LLM_MODEL,
+                model=self._llm_model,
                 prompt=VISION_PROMPT,
                 images=b64_images,
             )
             description = response["response"].strip()
 
-            kind_label = asset["kind"].capitalize()
             ts = asset["timestamp"]
             return Chunk(
                 window_start=ts.isoformat(),

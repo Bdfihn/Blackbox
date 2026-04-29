@@ -1,6 +1,7 @@
 import logging
 import sqlite3
 import zoneinfo
+from collections import Counter
 from datetime import datetime
 
 from .base import Chunk, floor_dt
@@ -118,13 +119,13 @@ class IPhoneSocialSource:
         for bucket_time in sorted(buckets):
             items = buckets[bucket_time]
 
-            app_counts: dict[str, int] = {}
+            app_counts: Counter[str] = Counter()
             names: set[str] = set()
             bundle_ids: set[str] = set()
 
             for item in items:
                 app = _readable_app(item["bundle_id"])
-                app_counts[app] = app_counts.get(app, 0) + 1
+                app_counts[app] += 1
                 bundle_ids.add(item["bundle_id"])
                 for name in (item["sender_name"], item["recipient_name"]):
                     if name and name.strip():
@@ -132,7 +133,7 @@ class IPhoneSocialSource:
 
             app_summary = ", ".join(
                 f"{count} {app}"
-                for app, count in sorted(app_counts.items(), key=lambda x: -x[1])
+                for app, count in app_counts.most_common()
             )
             contact_part = f" Contacts: {', '.join(sorted(names))}." if names else ""
             text = (
