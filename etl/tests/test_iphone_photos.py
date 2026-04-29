@@ -8,6 +8,7 @@ import zoneinfo
 from PIL import Image
 
 from sources.iphone_photos import IPhonePhotosSource, parse_photos, _resize, _to_b64, _reverse_geocode, _geocache
+from sources.face_index import FaceIndex
 from sources.iphone_backup import APPLE_EPOCH
 
 LOCAL_TZ = zoneinfo.ZoneInfo("America/New_York")
@@ -290,3 +291,138 @@ def test_get_chunks_vision_failure_does_not_abort_gps():
     photo_chunks = [c for c in chunks if c.source == "iphone_photos"]
     assert len(gps_chunks) == 1
     assert len(photo_chunks) == 0
+
+
+# ── FaceIndex ─────────────────────────────────────────────────────────────────
+
+def test_face_index_empty_when_dir_missing():
+    fi = FaceIndex("/nonexistent/faces_dir")
+    assert fi.empty
+    assert fi.identify("/any/image.jpg") == []
+
+
+def test_face_index_empty_when_faces_dir_is_none():
+    fi = FaceIndex(None)
+    assert fi.empty
+
+
+def test_face_index_loads_encodings(tmp_path, fake_face_recognition):
+    import numpy as np
+
+    person_dir = tmp_path / "Alice"
+    person_dir.mkdir()
+    (person_dir / "1.png").write_bytes(b"fake")
+
+    fake_enc = np.zeros(128)
+    fake_face_recognition.face_encodings.return_value = [fake_enc]
+
+    fi = FaceIndex(str(tmp_path))
+
+    assert not fi.empty
+    assert "Alice" in fi._encodings
+
+
+def test_face_index_identify_returns_matched_people(tmp_path, fake_face_recognition):
+    import numpy as np
+
+    person_dir = tmp_path / "Bob"
+    person_dir.mkdir()
+    (person_dir / "1.png").write_bytes(b"fake")
+
+    fake_enc = np.zeros(128)
+    fake_face_recognition.face_encodings.return_value = [fake_enc]
+    fi = FaceIndex(str(tmp_path))
+
+    fake_face_recognition.face_encodings.return_value = [fake_enc]
+    fake_face_recognition.compare_faces.return_value = [True]
+    result = fi.identify("/photo.jpg")
+
+    assert result == ["Bob"]
+
+
+def test_face_index_identify_no_match(tmp_path, fake_face_recognition):
+    import numpy as np
+
+    person_dir = tmp_path / "Carol"
+    person_dir.mkdir()
+    (person_dir / "1.png").write_bytes(b"fake")
+
+    fake_enc = np.zeros(128)
+    fake_face_recognition.face_encodings.return_value = [fake_enc]
+    fi = FaceIndex(str(tmp_path))
+
+    fake_face_recognition.face_encodings.return_value = [fake_enc]
+    fake_face_recognition.compare_faces.return_value = [False]
+    result = fi.identify("/photo.jpg")
+
+    assert result == []
+
+
+def test_face_index_skips_non_image_files(tmp_path, fake_face_recognition):
+    person_dir = tmp_path / "Dave"
+    person_dir.mkdir()
+    (person_dir / "video.mov").write_bytes(b"")
+
+    fi = FaceIndex(str(tmp_path))
+
+    fake_face_recognition.load_image_file.assert_not_called()
+    assert fi.empty
+
+
+# ── IPhonePhotosSource face recognition integration ───────────────────────────
+
+def _make_vision_chunk_setup():
+    """Returns (conn, mock_backup, mock_ollama) for vision chunk tests."""
+    conn = _make_photos_db()
+    mock_ollama = MagicMock()
+    mock_ollama.generate.return_value = {"response": "A person smiling."}
+    mock_backup = MagicMock()
+    img_buf = io.BytesIO()
+    Image.new("RGB", (100, 100)).save(img_buf, format="PNG")
+    img_buf.seek(0)
+    import tempfile, os
+    tmp = tempfile.mkdtemp()
+    img_path = os.path.join(tmp, "IMG_1234.HEIC")
+    with open(img_path, "wb") as f:
+        f.write(img_buf.getvalue())
+    mock_backup.getFileDecryptedCopy.return_value = {"decryptedFilePath": img_path}
+    return conn, mock_backup, mock_ollama
+
+
+def test_vision_chunk_injects_people_into_text_and_metadata():
+    conn, mock_backup, mock_ollama = _make_vision_chunk_setup()
+    start = datetime(2024, 1, 15, 4, 0, tzinfo=LOCAL_TZ)
+    end = datetime(2024, 1, 16, 4, 0, tzinfo=LOCAL_TZ)
+
+    source = IPhonePhotosSource(mock_backup, LOCAL_TZ, mock_ollama, "test-model")
+
+    with (
+        patch("sources.iphone_photos.open_backup_db", side_effect=lambda *a, **kw: _mock_db(conn)),
+        patch("sources.iphone_photos._reverse_geocode", return_value=None),
+        patch.object(source._faces, "identify", return_value=["Alice"]),
+    ):
+        chunks = source.get_chunks(start, end)
+
+    photo_chunks = [c for c in chunks if c.source == "iphone_photos"]
+    assert len(photo_chunks) == 1
+    assert "[with: Alice]" in photo_chunks[0].text
+    assert photo_chunks[0].metadata["people"] == ["Alice"]
+
+
+def test_vision_chunk_no_people_when_face_index_empty():
+    conn, mock_backup, mock_ollama = _make_vision_chunk_setup()
+    start = datetime(2024, 1, 15, 4, 0, tzinfo=LOCAL_TZ)
+    end = datetime(2024, 1, 16, 4, 0, tzinfo=LOCAL_TZ)
+
+    source = IPhonePhotosSource(mock_backup, LOCAL_TZ, mock_ollama, "test-model")
+
+    with (
+        patch("sources.iphone_photos.open_backup_db", side_effect=lambda *a, **kw: _mock_db(conn)),
+        patch("sources.iphone_photos._reverse_geocode", return_value=None),
+    ):
+        chunks = source.get_chunks(start, end)
+
+    photo_chunks = [c for c in chunks if c.source == "iphone_photos"]
+    assert len(photo_chunks) == 1
+    assert "[with:" not in photo_chunks[0].text
+    assert photo_chunks[0].metadata["people"] == []
