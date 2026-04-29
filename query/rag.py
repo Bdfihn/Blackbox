@@ -20,7 +20,7 @@ OLLAMA_HOST   = os.getenv("OLLAMA_HOST", "localhost")
 OLLAMA_PORT   = int(os.getenv("OLLAMA_PORT", 11434))
 COLLECTION    = "blackbox"
 EMBED_MODEL   = "nomic-embed-text"
-QUERY_MODEL   = "gemma4:e4b"
+LLM_MODEL   = "gemma4:e4b"
 TOP_K         = 10
 
 qdrant        = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
@@ -92,7 +92,7 @@ User question: {question}
 Answer:"""
 
     response = ollama_client.chat(
-        model=QUERY_MODEL,
+        model=LLM_MODEL,
         messages=[{"role": "user", "content": prompt}]
     )
 

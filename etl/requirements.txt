@@ -1,10 +1,8 @@
 requests==2.31.0
 qdrant-client==1.9.1
 ollama==0.2.1
-schedule==1.2.1
-python-dotenv==1.0.1
 pytest==7.4.3
-iOSbackup
-Pillow
-pillow-heif
-geopy
+iOSbackup==0.9.925
+Pillow==12.2.0
+pillow-heif==1.3.0
+geopy==2.4.1

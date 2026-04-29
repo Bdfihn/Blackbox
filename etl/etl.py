@@ -18,6 +18,7 @@ from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, Fi
 
 from sources import (
     ActivityWatchSource,
+    DataSource,
     IPhoneHealthSource,
     IPhoneSocialSource,
     IPhonePhotosSource,
@@ -39,7 +40,7 @@ OLLAMA_PORT    = int(os.getenv("OLLAMA_PORT", 11434))
 DIARY_DIR      = Path(os.getenv("DIARY_DIR", "/app/diary"))
 COLLECTION     = "blackbox"
 EMBED_MODEL    = "nomic-embed-text"
-SUMMARY_MODEL  = "gemma4:e4b"
+LLM_MODEL      = "gemma4:e4b"
 
 DIARY_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -140,7 +141,7 @@ def generate_diary_entry(date: str, chunks: list[Chunk]) -> str:
 
     timeline = "\n".join(c.text for c in chunks)
 
-    prompt = f"""You are writing a personal daily diary entry from automatically logged activity data.
+    instructions = """You are writing a personal daily diary entry from automatically logged activity data.
 
 Write 3-5 paragraphs in first person. Be specific and concrete — name actual places, people, apps, and activities from the data. Do not paraphrase into vague categories like "outdoor activities" or "digital pursuits."
 
@@ -155,32 +156,19 @@ Rules:
 - For photo clusters at a named location, describe what was happening there based on the photo descriptions.
 - For social interaction entries, name the contacts and platforms when available.
 - Group related entries into coherent activity blocks — don't list every event individually.
-- Health step counts and activity summaries should be woven in naturally, not listed separately.
+- Health step counts and activity summaries should be woven in naturally, not listed separately."""
+
+    prompt = f"""{instructions}
 
 TIMELINE:
 {timeline}
 TIMELINE END
 
-You are writing a personal daily diary entry from automatically logged activity data.
-
-Write 3-5 paragraphs in first person. Be specific and concrete — name actual places, people, apps, and activities from the data. Do not paraphrase into vague categories like "outdoor activities" or "digital pursuits."
-
-Rules:
-- Plain text only. No markdown, no bullet points, no headers.
-- No advice, editorializing, or filler phrases.
-- Follow the timeline chronologically.
-- Use 12-hour AM/PM time format.
-- If health/sleep data is present, use it to anchor wake/sleep times. Otherwise use the first and last non-LockApp PC activity.
-- For terminal titles like, that is the specific task being worked on — name it.
-- For VS Code titles like "script.py - Project Name", that means coding on the project with that tile.
-- For photo clusters at a named location, describe what was happening there based on the photo descriptions.
-- For social interaction entries, name the contacts and platforms when available.
-- Group related entries into coherent activity blocks — don't list every event individually.
-- Health step counts and activity summaries should be woven in naturally, not listed separately.
+{instructions}
 """
 
     response = ollama_client.chat(
-        model=SUMMARY_MODEL,
+        model=LLM_MODEL,
         messages=[{"role": "user", "content": prompt}]
     )
     return f"# {date}\n\n{response['message']['content']}\n"
