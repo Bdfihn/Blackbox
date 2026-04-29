@@ -1,9 +1,35 @@
+import importlib
 import logging
 import os
+import sys
+import types
 
 log = logging.getLogger(__name__)
 
 _IMAGE_EXTS = {'.jpg', '.jpeg', '.png'}
+
+
+def _ensure_pkg_resources() -> None:
+    """Inject a minimal pkg_resources shim if setuptools didn't expose it.
+
+    face_recognition_models.__init__ does `from pkg_resources import resource_filename`
+    which fails on Python 3.12-slim when setuptools >= 80 omits the top-level module.
+    """
+    if 'pkg_resources' in sys.modules:
+        return
+    try:
+        import pkg_resources  # noqa: F401
+        return
+    except ImportError:
+        pass
+
+    def _resource_filename(pkg_name: str, resource_name: str) -> str:
+        m = importlib.import_module(pkg_name)
+        return os.path.join(os.path.dirname(m.__file__), resource_name)
+
+    shim = types.ModuleType('pkg_resources')
+    shim.resource_filename = _resource_filename  # type: ignore[attr-defined]
+    sys.modules['pkg_resources'] = shim
 
 
 class FaceIndex:
@@ -17,6 +43,7 @@ class FaceIndex:
             log.info(f"Faces dir {faces_dir!r} not found — face recognition disabled")
 
     def _load(self, faces_dir: str) -> None:
+        _ensure_pkg_resources()
         try:
             import face_recognition
         except (ImportError, SystemExit):
