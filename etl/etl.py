@@ -58,7 +58,6 @@ def ensure_collection():
         log.info(f"Created Qdrant collection '{COLLECTION}'")
 
 
-
 def embed(text: str) -> list[float]:
     """Embed a string using nomic-embed-text via Ollama."""
     response = ollama_client.embeddings(model=EMBED_MODEL, prompt=text)

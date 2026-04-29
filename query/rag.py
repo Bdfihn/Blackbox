@@ -6,11 +6,10 @@ feeds them to gemma4:e4b for a fast, grounded answer.
 
 import os
 import logging
-from datetime import datetime
 
 import ollama
 from qdrant_client import QdrantClient
-from qdrant_client.models import Filter, FieldCondition, MatchValue, Range
+from qdrant_client.models import Filter, FieldCondition, MatchValue
 
 log = logging.getLogger(__name__)
 
@@ -27,6 +26,10 @@ qdrant        = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
 ollama_client = ollama.Client(host=f"http://{OLLAMA_HOST}:{OLLAMA_PORT}")
 
 
+def _date_filter(date: str) -> Filter:
+    return Filter(must=[FieldCondition(key="date", match=MatchValue(value=date))])
+
+
 def embed(text: str) -> list[float]:
     response = ollama_client.embeddings(model=EMBED_MODEL, prompt=text)
     return response["embedding"]
@@ -39,11 +42,7 @@ def search(question: str, top_k: int = TOP_K, date_filter: str | None = None) ->
     """
     vector = embed(question)
 
-    query_filter = None
-    if date_filter:
-        query_filter = Filter(
-            must=[FieldCondition(key="date", match=MatchValue(value=date_filter))]
-        )
+    query_filter = _date_filter(date_filter) if date_filter else None
 
     results = qdrant.search(
         collection_name=COLLECTION,
@@ -69,7 +68,6 @@ def answer(question: str, date_filter: str | None = None) -> dict:
             "retrieved_chunks": [],
         }
 
-    # Build context block
     context_parts = []
     for c in chunks:
         context_parts.append(

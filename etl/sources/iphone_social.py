@@ -23,7 +23,6 @@ def _readable_app(bundle_id: str) -> str:
     return _BUNDLE_NAMES.get(bundle_id, bundle_id)
 
 
-
 def _junction_cols(conn: sqlite3.Connection) -> tuple[str | None, str | None]:
     """Discover FK column names in Z_2INTERACTIONRECIPIENT via PRAGMA.
 
@@ -148,7 +147,7 @@ class IPhoneSocialSource:
                 window_start=bucket_time.isoformat(),
                 text=text,
                 apps=sorted(app_counts.keys()),
-                total_secs=900,
+                total_secs=BUCKET_MINUTES * 60,
                 source="iphone_social",
                 metadata={
                     "event_count": len(items),
