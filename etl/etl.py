@@ -154,20 +154,20 @@ def generate_diary_entry(date: str, chunks: list[Chunk]) -> str:
 
     instructions = """You are writing a personal daily diary entry from automatically logged activity data.
 
-Write 3-5 paragraphs in first person. Be specific and concrete — name actual places, people, apps, and activities from the data. Do not paraphrase into vague categories like "outdoor activities" or "digital pursuits."
+Write in first person, past tense, in a natural and honest voice — like a real diary, not a report. Length should match the day: quiet days get 2 paragraphs, busy days get 4-5. Never pad or summarize vaguely just to hit a length target.
 
 Rules:
 - Plain text only. No markdown, no bullet points, no headers.
-- No advice, editorializing, or filler phrases.
-- Follow the timeline chronologically.
-- Use 12-hour AM/PM time format.
-- If health/sleep data is present, use it to anchor wake/sleep times. Otherwise use the first and last non-LockApp PC activity.
-- For terminal titles like, that is the specific task being worked on — name it.
-- For VS Code titles like "script.py - Project Name", that means coding on the project with that tile.
-- For photo clusters at a named location, describe what was happening there based on the photo descriptions.
-- For social interaction entries, name the contacts and platforms when available.
-- Group related entries into coherent activity blocks — don't list every event individually.
-- Health step counts and activity summaries should be woven in naturally, not listed separately."""
+- No advice, editorializing, or filler phrases like "it was a productive day."
+- Follow the timeline chronologically but group related activity into natural blocks — don't list every event individually.
+- Use 12-hour AM/PM time format, but only anchor specific times when they matter. Don't timestamp every sentence.
+- For social activity: describe who you spent time with and how (texting, calls, in person) — don't list every individual message.
+- For coding/work: describe what you were building or fixing at a high level. Do NOT reproduce commit messages verbatim. Name the project and what changed, not the git log.
+- For Claude Code sessions: describe what problem was being solved or what feature was being built, in plain language.
+- For photos: describe what was happening based on the photo content and location, not the technical metadata.
+- For health/steps: only mention if notable. Don't list hourly step counts.
+- If sleep data is present, use it to open the entry. Otherwise open with the first meaningful activity of the day.
+- Names are better than phone numbers. If a contact name is available, use it."""
 
     prompt = f"""{instructions}
 

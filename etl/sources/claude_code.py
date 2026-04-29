@@ -39,10 +39,11 @@ class ClaudeCodeSource:
             return []
 
         # Collect in-window time ranges for all candidate files.
+        skipped_subagent = 0
         file_ranges: list[tuple[Path, datetime, datetime]] = []
         for jsonl_file in sorted(self._root.rglob("*.jsonl")):
             if jsonl_file.parent.name == "subagents":
-                log.debug(f"  claude_code: skipping subagent file {jsonl_file.name}")
+                skipped_subagent += 1
                 continue
             try:
                 ts = self._window_timestamps(jsonl_file, start, end)
@@ -51,8 +52,11 @@ class ClaudeCodeSource:
             except Exception as exc:
                 log.error(f"  claude_code error scanning {jsonl_file.name}: {exc}")
 
+        total_candidate = len(file_ranges)
+
         # Within each project directory, skip sessions whose in-window range is
-        # strictly contained inside a larger sibling session — those are subagents.
+        # strictly contained inside a larger sibling session — those are subagents
+        # that were stored at the top level rather than in a subagents/ directory.
         def is_contained(path: Path, s: datetime, e: datetime) -> bool:
             for other, os, oe in file_ranges:
                 if other.parent != path.parent or other == path:
@@ -62,9 +66,11 @@ class ClaudeCodeSource:
             return False
 
         chunks = []
+        skipped_contained = 0
         for jsonl_file, s, e in file_ranges:
             if is_contained(jsonl_file, s, e):
                 log.debug(f"  claude_code: skipping contained session {jsonl_file.name}")
+                skipped_contained += 1
                 continue
             try:
                 chunk = self._process_session(jsonl_file, start, end)
@@ -73,7 +79,11 @@ class ClaudeCodeSource:
             except Exception as exc:
                 log.error(f"  claude_code error in {jsonl_file.name}: {exc}")
 
-        log.info(f"  claude_code: {len(chunks)} sessions")
+        log.info(
+            f"  claude_code: {len(chunks)} sessions"
+            f" (found {total_candidate}, skipped {skipped_contained} contained"
+            f", {skipped_subagent} subagent files)"
+        )
         return chunks
 
     def _window_timestamps(self, path: Path, start: datetime, end: datetime) -> list[datetime]:
@@ -131,6 +141,11 @@ class ClaudeCodeSource:
 
         user_texts, assistant_texts = [], []
         for r in records:
+            raw = r.get("timestamp")
+            if raw:
+                ts = _parse_ts(raw)
+                if not ts or not (start <= ts.astimezone(self._local_tz) < end):
+                    continue
             rtype = r.get("type")
             if rtype == "user":
                 if r.get("isMeta"):
