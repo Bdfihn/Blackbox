@@ -19,6 +19,7 @@ from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, Fi
 from sources import (
     ActivityWatchSource,
     DataSource,
+    GitSource,
     IPhoneHealthSource,
     IPhoneSocialSource,
     IPhonePhotosSource,
@@ -33,6 +34,7 @@ log = logging.getLogger(__name__)
 # ── Config ────────────────────────────────────────────────────────────────────
 LOCAL_TZ       = zoneinfo.ZoneInfo(os.getenv("TIMEZONE", "America/New_York"))
 AW_BASE        = f"http://{os.getenv('ACTIVITYWATCH_HOST', 'host.docker.internal')}:{os.getenv('ACTIVITYWATCH_PORT', 5600)}/api/0"
+GIT_REPOS_ROOT = os.getenv("GIT_REPOS_ROOT", "")
 QDRANT_HOST    = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT    = int(os.getenv("QDRANT_PORT", 6333))
 OLLAMA_HOST    = os.getenv("OLLAMA_HOST", "localhost")
@@ -192,6 +194,8 @@ def run_etl(target_date: datetime | None = None):
     start, end = day_bounds(target_date)
 
     sources: list[DataSource] = [ActivityWatchSource(AW_BASE, LOCAL_TZ)]
+    if GIT_REPOS_ROOT:
+        sources.append(GitSource(GIT_REPOS_ROOT, LOCAL_TZ))
 
     try:
         from iOSbackup import iOSbackup as _IOSBackup
