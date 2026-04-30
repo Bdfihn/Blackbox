@@ -83,18 +83,20 @@ def embed(text: str) -> list[float]:
 
 
 def upsert_chunks(chunks: list[Chunk], date_str: str):
-    """Embed and upsert chunks into Qdrant."""
+    """Delete all existing chunks for date_str, then embed and insert fresh ones."""
+    qdrant.delete(
+        collection_name=COLLECTION,
+        points_selector=Filter(must=[FieldCondition(key="date", match=MatchValue(value=date_str))]),
+    )
+    log.info(f"Cleared existing chunks for {date_str}.")
+
     if not chunks:
         log.info("No chunks to upsert.")
         return
 
     points = []
     for chunk in chunks:
-        session_uuid = chunk.metadata.get("session_uuid") if chunk.metadata else None
-        if session_uuid:
-            chunk_id = hashlib.md5(f"{chunk.source}:{session_uuid}:{date_str}".encode()).hexdigest()
-        else:
-            chunk_id = hashlib.md5(chunk.text.encode()).hexdigest()
+        chunk_id = hashlib.md5(chunk.text.encode()).hexdigest()
         vector = embed(chunk.text)
         points.append(PointStruct(
             id=chunk_id,
