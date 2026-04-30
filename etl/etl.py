@@ -153,7 +153,7 @@ def generate_diary_entry(date: str, chunks: list[Chunk]) -> str:
 
     timeline = "\n".join(c.text for c in chunks)
 
-    instructions = """You are writing a personal daily diary entry from automatically logged activity data.
+instructions = """You are writing a personal daily diary entry from automatically logged activity data.
 
 Write in first person, past tense, in a natural and honest voice — like a real diary, not a report. Length should match the day: quiet days get 2 paragraphs, busy days get 4-5. Never pad or summarize vaguely just to hit a length target.
 
@@ -165,7 +165,8 @@ Rules:
 - For social activity: describe who you spent time with and how (texting, calls, in person) — don't list every individual message.
 - For coding/work: describe what you were building or fixing at a high level. Do NOT reproduce commit messages verbatim. Name the project and what changed, not the git log.
 - For Claude Code sessions: describe what problem was being solved or what feature was being built, in plain language.
-- For photos: describe what was happening based on the photo content and location, not the technical metadata.
+- For photos with "[with: names]" tags: those are the identified people in the photo — use their names naturally instead of describing "a young woman."
+- Connect the dots across sources: if someone appears in both photos and messages/calls on the same day, they were likely together in person — describe it that way.
 - For health/steps: only mention if notable. Don't list hourly step counts.
 - If sleep data is present, use it to open the entry. Otherwise open with the first meaningful activity of the day.
 - Names are better than phone numbers. If a contact name is available, use it."""
