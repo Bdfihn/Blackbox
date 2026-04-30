@@ -306,15 +306,26 @@ def test_face_index_empty_when_faces_dir_is_none():
     assert fi.empty
 
 
-def test_face_index_loads_encodings(tmp_path, fake_face_recognition):
+def _unit_vec(dim=512):
     import numpy as np
+    v = np.zeros(dim, dtype=np.float32)
+    v[0] = 1.0
+    return v
 
+
+def _make_face(embedding):
+    face = MagicMock()
+    face.embedding = embedding
+    return face
+
+
+def test_face_index_loads_encodings(tmp_path, fake_insightface):
     person_dir = tmp_path / "Alice"
     person_dir.mkdir()
     (person_dir / "1.png").write_bytes(b"fake")
 
-    fake_enc = np.zeros(128)
-    fake_face_recognition.face_encodings.return_value = [fake_enc]
+    enc = _unit_vec()
+    fake_insightface.get.return_value = [_make_face(enc)]
 
     fi = FaceIndex(str(tmp_path))
 
@@ -322,50 +333,62 @@ def test_face_index_loads_encodings(tmp_path, fake_face_recognition):
     assert "Alice" in fi._encodings
 
 
-def test_face_index_identify_returns_matched_people(tmp_path, fake_face_recognition):
-    import numpy as np
-
+def test_face_index_identify_returns_matched_people(tmp_path, fake_insightface):
     person_dir = tmp_path / "Bob"
     person_dir.mkdir()
     (person_dir / "1.png").write_bytes(b"fake")
 
-    fake_enc = np.zeros(128)
-    fake_face_recognition.face_encodings.return_value = [fake_enc]
+    enc = _unit_vec()
+    fake_insightface.get.return_value = [_make_face(enc)]
     fi = FaceIndex(str(tmp_path))
 
-    fake_face_recognition.face_encodings.return_value = [fake_enc]
-    fake_face_recognition.compare_faces.return_value = [True]
-    result = fi.identify("/photo.jpg")
+    fake_insightface.get.return_value = [_make_face(enc)]
+    result = fi.identify("/photo.png")
 
     assert result == ["Bob"]
 
 
-def test_face_index_identify_no_match(tmp_path, fake_face_recognition):
+def test_face_index_identify_no_match(tmp_path, fake_insightface):
     import numpy as np
 
     person_dir = tmp_path / "Carol"
     person_dir.mkdir()
     (person_dir / "1.png").write_bytes(b"fake")
 
-    fake_enc = np.zeros(128)
-    fake_face_recognition.face_encodings.return_value = [fake_enc]
+    ref_enc = _unit_vec()
+    fake_insightface.get.return_value = [_make_face(ref_enc)]
     fi = FaceIndex(str(tmp_path))
 
-    fake_face_recognition.face_encodings.return_value = [fake_enc]
-    fake_face_recognition.compare_faces.return_value = [False]
-    result = fi.identify("/photo.jpg")
+    # Orthogonal vector — cosine similarity = 0.0, below threshold
+    other_enc = np.zeros(512, dtype=np.float32)
+    other_enc[1] = 1.0
+    fake_insightface.get.return_value = [_make_face(other_enc)]
+    result = fi.identify("/photo.png")
 
     assert result == []
 
 
-def test_face_index_skips_non_image_files(tmp_path, fake_face_recognition):
+def test_face_index_skips_multi_face_reference(tmp_path, fake_insightface):
     person_dir = tmp_path / "Dave"
+    person_dir.mkdir()
+    (person_dir / "1.png").write_bytes(b"fake")
+
+    enc = _unit_vec()
+    fake_insightface.get.return_value = [_make_face(enc), _make_face(enc)]
+
+    fi = FaceIndex(str(tmp_path))
+
+    assert fi.empty
+
+
+def test_face_index_skips_non_image_files(tmp_path, fake_insightface):
+    person_dir = tmp_path / "Eve"
     person_dir.mkdir()
     (person_dir / "video.mov").write_bytes(b"")
 
     fi = FaceIndex(str(tmp_path))
 
-    fake_face_recognition.load_image_file.assert_not_called()
+    fake_insightface.get.assert_not_called()
     assert fi.empty
 
 
