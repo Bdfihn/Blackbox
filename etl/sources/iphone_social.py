@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import sqlite3
 import zoneinfo
 from collections import Counter
@@ -12,7 +13,7 @@ log = logging.getLogger(__name__)
 
 BUCKET_MINUTES = 15
 
-_SELF_PHONE = os.getenv("SELF_PHONE", "").strip()
+_SELF_PHONE = re.sub(r"\D", "", os.getenv("SELF_PHONE", ""))[-10:]
 
 _BUNDLE_NAMES = {
     "com.apple.MobileSMS": "Messages",
@@ -133,7 +134,7 @@ class IPhoneSocialSource:
                 app_counts[app] += 1
                 bundle_ids.add(item["bundle_id"])
                 for name in (item["sender_name"], item["recipient_name"]):
-                    if name and name.strip() and name.strip() != _SELF_PHONE:
+                    if name and name.strip() and re.sub(r"\D", "", name)[-10:] != _SELF_PHONE:
                         names.add(name.strip())
 
             app_summary = ", ".join(

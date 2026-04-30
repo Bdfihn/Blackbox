@@ -9,14 +9,15 @@ from .base import Chunk
 log = logging.getLogger(__name__)
 
 _SUMMARY_PROMPT = (
-    "You are summarizing a Claude Code AI coding session for a personal diary. "
-    "Write exactly 2-3 sentences in first person describing what was worked on. "
-    "Be specific: name files, features, bugs, and decisions. "
-    "No filler phrases, no markdown, no advice. "
-    "Start directly with the work, e.g. \"Debugged the timezone handling...\""
+    "Summarize this coding session as a personal diary entry for the developer. "
+    "Write 2-3 sentences in first person, naming specific files, features, bugs, or decisions. "
+    'Start directly with the work, e.g. "Fixed the rate-limiting bug in api.py..." '
+    'or "Built the auth flow and wired it to the database..."'
 )
 
 _MAX_CONTENT_CHARS = 16000
+_HEAD_CHARS = 6400
+_TAIL_CHARS = 6400
 
 
 def _parse_ts(raw: str) -> datetime | None:
@@ -24,6 +25,55 @@ def _parse_ts(raw: str) -> datetime | None:
         return datetime.fromisoformat(raw.replace("Z", "+00:00"))
     except (ValueError, AttributeError):
         return None
+
+
+def _extract_messages(
+    records: list[dict],
+    start: datetime,
+    end: datetime,
+    local_tz: zoneinfo.ZoneInfo,
+) -> list[str]:
+    """Return interleaved User/Assistant lines in chronological order."""
+    lines = []
+    for r in records:
+        raw = r.get("timestamp")
+        if raw:
+            ts = _parse_ts(raw)
+            if not ts or not (start <= ts.astimezone(local_tz) < end):
+                continue
+        rtype = r.get("type")
+        if rtype == "user":
+            if r.get("isMeta"):
+                continue
+            content = r.get("message", {}).get("content", "")
+            if isinstance(content, str):
+                text = content.strip()
+                if text and not text.startswith("<"):
+                    lines.append(f"User: {text}")
+            elif isinstance(content, list):
+                for block in content:
+                    if not isinstance(block, dict) or block.get("type") != "text":
+                        continue
+                    text = block.get("text", "").strip()
+                    if text and not text.startswith("[Request interrupted"):
+                        lines.append(f"User: {text}")
+        elif rtype == "assistant":
+            for block in r.get("message", {}).get("content", []):
+                if isinstance(block, dict) and block.get("type") == "text":
+                    text = block.get("text", "").strip()
+                    if text:
+                        lines.append(f"Assistant: {text}")
+    return lines
+
+
+def _truncate(lines: list[str], max_chars: int, head_chars: int, tail_chars: int) -> str:
+    """Join lines; if over max_chars, keep head + tail with a gap marker."""
+    full = "\n\n".join(lines)
+    if len(full) <= max_chars:
+        return full
+    head = full[:head_chars]
+    tail = full[-tail_chars:]
+    return f"{head}\n\n[...]\n\n{tail}"
 
 
 class ClaudeCodeSource:
@@ -139,41 +189,12 @@ class ClaudeCodeSource:
         session_end = max(window_ts)
         local_start = session_start.astimezone(self._local_tz)
 
-        user_texts, assistant_texts = [], []
-        for r in records:
-            raw = r.get("timestamp")
-            if raw:
-                ts = _parse_ts(raw)
-                if not ts or not (start <= ts.astimezone(self._local_tz) < end):
-                    continue
-            rtype = r.get("type")
-            if rtype == "user":
-                if r.get("isMeta"):
-                    continue
-                msg = r.get("message", {})
-                content = msg.get("content", "")
-                if isinstance(content, str) and content.strip() and not content.strip().startswith("<"):
-                    user_texts.append(content.strip())
-            elif rtype == "assistant":
-                msg = r.get("message", {})
-                for block in msg.get("content", []):
-                    if isinstance(block, dict) and block.get("type") == "text":
-                        text = block.get("text", "").strip()
-                        if text:
-                            assistant_texts.append(text)
+        lines = _extract_messages(records, start, end, self._local_tz)
 
-        if not user_texts and not assistant_texts:
+        if not lines:
             return None
 
-        combined = []
-        for u in user_texts:
-            combined.append(f"User: {u}")
-        for a in assistant_texts:
-            combined.append(f"Assistant: {a}")
-
-        content_for_llm = "\n\n".join(combined)
-        if len(content_for_llm) > _MAX_CONTENT_CHARS:
-            content_for_llm = content_for_llm[:_MAX_CONTENT_CHARS] + "\n[truncated]"
+        content_for_llm = _truncate(lines, _MAX_CONTENT_CHARS, _HEAD_CHARS, _TAIL_CHARS)
 
         duration_secs = (session_end - session_start).total_seconds()
         duration_str = _fmt_duration(duration_secs)

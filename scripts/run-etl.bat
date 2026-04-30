@@ -15,3 +15,7 @@ docker compose -f "C:\Users\Bdfihn\Code\Blackbox\docker-compose.yml" up -d qdran
 
 :: Run ETL (exits when done)
 docker compose -f "C:\Users\Bdfihn\Code\Blackbox\docker-compose.yml" run --rm etl
+
+:: Tear down containers now that ETL is complete
+docker compose -f "C:\Users\Bdfihn\Code\Blackbox\docker-compose.yml" down
+docker compose -f "C:\Users\Bdfihn\Code\AI\docker-compose.yml" down

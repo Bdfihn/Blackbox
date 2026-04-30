@@ -8,7 +8,7 @@ from PIL import Image
 log = logging.getLogger(__name__)
 
 _IMAGE_EXTS = {'.jpg', '.jpeg', '.png'}
-_MATCH_THRESHOLD = 0.4
+_MATCH_THRESHOLD = 0.35
 
 
 def _imread(path: str):
@@ -109,7 +109,10 @@ class FaceIndex:
                     continue
                 enc = enc / norm
                 for person, ref_encs in self._encodings.items():
-                    if any(float(np.dot(enc, ref)) >= _MATCH_THRESHOLD for ref in ref_encs):
+                    scores = [float(np.dot(enc, ref)) for ref in ref_encs]
+                    best = max(scores)
+                    log.debug(f"  {person}: best={best:.3f} (threshold={_MATCH_THRESHOLD})")
+                    if best >= _MATCH_THRESHOLD:
                         matched.add(person)
             return sorted(matched)
         except Exception as e:

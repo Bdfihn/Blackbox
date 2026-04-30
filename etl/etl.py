@@ -30,7 +30,10 @@ from sources import (
     Chunk,
 )
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(message)s",
+)
 log = logging.getLogger(__name__)
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -169,7 +172,8 @@ Rules:
 - Connect the dots across sources: if someone appears in both photos and messages/calls on the same day, they were likely together in person — describe it that way.
 - For health/steps: only mention if notable. Don't list hourly step counts.
 - If sleep data is present, use it to open the entry. Otherwise open with the first meaningful activity of the day.
-- Names are better than phone numbers. If a contact name is available, use it."""
+- Names are better than phone numbers. If a contact name is available, use it.
+- Allocate paragraph space proportional to how much time was actually spent on each activity."""
 
     prompt = f"""{instructions}
 
