@@ -3,11 +3,21 @@ import os
 
 import cv2
 import numpy as np
+from PIL import Image
 
 log = logging.getLogger(__name__)
 
 _IMAGE_EXTS = {'.jpg', '.jpeg', '.png'}
 _MATCH_THRESHOLD = 0.4
+
+
+def _imread(path: str):
+    """Load any image format (including HEIC) as a BGR numpy array for cv2/InsightFace."""
+    try:
+        img = Image.open(path).convert('RGB')
+        return cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+    except Exception:
+        return None
 
 
 def _load_app():
@@ -52,7 +62,7 @@ class FaceIndex:
                     continue
                 fpath = os.path.join(person_dir, fname)
                 try:
-                    img = cv2.imread(fpath)
+                    img = _imread(fpath)
                     if img is None:
                         log.warning(f"Could not read reference image {fpath}")
                         continue
@@ -83,7 +93,7 @@ class FaceIndex:
         if self.empty or self._app is None:
             return []
         try:
-            img = cv2.imread(image_path)
+            img = _imread(image_path)
             if img is None:
                 return []
             unknown_faces = self._app.get(img)
