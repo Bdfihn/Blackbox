@@ -1,35 +1,20 @@
-import importlib
 import logging
 import os
-import sys
-import types
+
+import cv2
+import numpy as np
 
 log = logging.getLogger(__name__)
 
 _IMAGE_EXTS = {'.jpg', '.jpeg', '.png'}
+_MATCH_THRESHOLD = 0.4
 
 
-def _ensure_pkg_resources() -> None:
-    """Inject a minimal pkg_resources shim if setuptools didn't expose it.
-
-    face_recognition_models.__init__ does `from pkg_resources import resource_filename`
-    which fails on Python 3.12-slim when setuptools >= 80 omits the top-level module.
-    """
-    if 'pkg_resources' in sys.modules:
-        return
-    try:
-        import pkg_resources  # noqa: F401
-        return
-    except ImportError:
-        pass
-
-    def _resource_filename(pkg_name: str, resource_name: str) -> str:
-        m = importlib.import_module(pkg_name)
-        return os.path.join(os.path.dirname(m.__file__), resource_name)
-
-    shim = types.ModuleType('pkg_resources')
-    shim.resource_filename = _resource_filename  # type: ignore[attr-defined]
-    sys.modules['pkg_resources'] = shim
+def _load_app():
+    from insightface.app import FaceAnalysis
+    app = FaceAnalysis(name='buffalo_l', providers=['CPUExecutionProvider'])
+    app.prepare(ctx_id=0, det_size=(640, 640))
+    return app
 
 
 class FaceIndex:
@@ -43,11 +28,10 @@ class FaceIndex:
             log.info(f"Faces dir {faces_dir!r} not found — face recognition disabled")
 
     def _load(self, faces_dir: str) -> None:
-        _ensure_pkg_resources()
         try:
-            import face_recognition
-        except (ImportError, SystemExit):
-            log.warning("face_recognition unavailable — face recognition disabled")
+            app = _load_app()
+        except Exception as e:
+            log.warning(f"InsightFace unavailable — face recognition disabled: {e}")
             return
 
         for person in sorted(os.listdir(faces_dir)):
@@ -56,16 +40,28 @@ class FaceIndex:
                 continue
             encodings = []
             for fname in sorted(os.listdir(person_dir)):
-                if os.path.splitext(fname)[1].lower() not in _IMAGE_EXTS:
+                ext = os.path.splitext(fname)[1].lower()
+                if not ext:
+                    log.warning(f"Skipping reference file with no extension: {os.path.join(person_dir, fname)}")
+                    continue
+                if ext not in _IMAGE_EXTS:
+                    log.warning(f"Skipping unsupported file type {ext!r}: {os.path.join(person_dir, fname)}")
                     continue
                 fpath = os.path.join(person_dir, fname)
                 try:
-                    img = face_recognition.load_image_file(fpath)
-                    encs = face_recognition.face_encodings(img)
-                    if encs:
-                        encodings.append(encs[0])
-                    else:
-                        log.warning(f"No face detected in reference image {fpath}")
+                    img = cv2.imread(fpath)
+                    if img is None:
+                        log.warning(f"Could not read reference image {fpath}")
+                        continue
+                    faces = app.get(img)
+                    if len(faces) != 1:
+                        log.warning(f"Reference image has {len(faces)} faces, expected 1 — skipping {fpath}")
+                        continue
+                    emb = faces[0].embedding
+                    if emb is None:
+                        log.warning(f"No embedding returned for {fpath} — skipping")
+                        continue
+                    encodings.append(emb)
                 except Exception as e:
                     log.warning(f"Failed to encode reference image {fpath}: {e}")
             if encodings:
@@ -80,18 +76,24 @@ class FaceIndex:
         if self.empty:
             return []
         try:
-            import face_recognition
-        except (ImportError, SystemExit):
+            app = _load_app()
+        except Exception as e:
+            log.warning(f"InsightFace unavailable — skipping identification: {e}")
             return []
         try:
-            img = face_recognition.load_image_file(image_path)
-            unknown_encs = face_recognition.face_encodings(img)
-            if not unknown_encs:
+            img = cv2.imread(image_path)
+            if img is None:
+                return []
+            unknown_faces = app.get(img)
+            if not unknown_faces:
                 return []
             matched: set[str] = set()
-            for unknown_enc in unknown_encs:
+            for face in unknown_faces:
+                enc = face.embedding
+                if enc is None:
+                    continue
                 for person, ref_encs in self._encodings.items():
-                    if any(face_recognition.compare_faces(ref_encs, unknown_enc)):
+                    if any(float(np.dot(enc, ref)) >= _MATCH_THRESHOLD for ref in ref_encs):
                         matched.add(person)
             return sorted(matched)
         except Exception as e:
