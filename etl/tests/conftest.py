@@ -1,12 +1,11 @@
-import sys
-from unittest.mock import MagicMock, patch
-import numpy as np
+from unittest.mock import MagicMock
 import pytest
 
 
 @pytest.fixture
 def fake_insightface(monkeypatch):
-    """Patch _load_app and cv2.imread so InsightFace models are never loaded in tests."""
+    """Patch _load_app so InsightFace models are never loaded in tests."""
+    import numpy as np
     mock_app = MagicMock()
     monkeypatch.setattr("sources.face_index._load_app", lambda: mock_app)
     fake_img = np.zeros((100, 100, 3), dtype=np.uint8)

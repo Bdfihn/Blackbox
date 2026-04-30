@@ -22,6 +22,7 @@ class FaceIndex:
 
     def __init__(self, faces_dir: str | None):
         self._encodings: dict[str, list] = {}
+        self._app = None
         if faces_dir and os.path.isdir(faces_dir):
             self._load(faces_dir)
         elif faces_dir:
@@ -33,6 +34,8 @@ class FaceIndex:
         except Exception as e:
             log.warning(f"InsightFace unavailable — face recognition disabled: {e}")
             return
+
+        self._app = app
 
         for person in sorted(os.listdir(faces_dir)):
             person_dir = os.path.join(faces_dir, person)
@@ -77,18 +80,13 @@ class FaceIndex:
         return not self._encodings
 
     def identify(self, image_path: str) -> list[str]:
-        if self.empty:
-            return []
-        try:
-            app = _load_app()
-        except Exception as e:
-            log.warning(f"InsightFace unavailable — skipping identification: {e}")
+        if self.empty or self._app is None:
             return []
         try:
             img = cv2.imread(image_path)
             if img is None:
                 return []
-            unknown_faces = app.get(img)
+            unknown_faces = self._app.get(img)
             if not unknown_faces:
                 return []
             matched: set[str] = set()
