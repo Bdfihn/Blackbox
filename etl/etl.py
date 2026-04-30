@@ -153,7 +153,7 @@ def generate_diary_entry(date: str, chunks: list[Chunk]) -> str:
 
     timeline = "\n".join(c.text for c in chunks)
 
-instructions = """You are writing a personal daily diary entry from automatically logged activity data.
+    instructions = """You are writing a personal daily diary entry from automatically logged activity data.
 
 Write in first person, past tense, in a natural and honest voice — like a real diary, not a report. Length should match the day: quiet days get 2 paragraphs, busy days get 4-5. Never pad or summarize vaguely just to hit a length target.
 
