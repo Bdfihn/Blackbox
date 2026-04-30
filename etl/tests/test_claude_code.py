@@ -8,6 +8,7 @@ from sources.claude_code import (
     ClaudeCodeSource,
     _extract_messages,
     _fmt_duration,
+    _is_system_message,
 )
 
 LOCAL_TZ = zoneinfo.ZoneInfo("America/New_York")
@@ -112,10 +113,33 @@ def test_extract_skips_meta_records():
     assert lines == []
 
 
-def test_extract_skips_xml_prefixed_user_messages():
-    records = [_user_str("<context>some injected context</context>")]
+def test_is_system_message_matches_known_tags():
+    assert _is_system_message("<command-name>/clear</command-name>")
+    assert _is_system_message("<local-command-stdout>See ya!</local-command-stdout>")
+    assert _is_system_message("<task-notification>...</task-notification>")
+    assert _is_system_message("<system-reminder>injected</system-reminder>")
+
+
+def test_is_system_message_passes_unknown_tags():
+    assert not _is_system_message("<html><body>pasted markup</body></html>")
+    assert not _is_system_message("<config>some xml</config>")
+    assert not _is_system_message("just text")
+
+
+def test_extract_skips_claude_code_system_messages():
+    records = [
+        _user_str("<command-name>/clear</command-name>"),
+        _user_str("<local-command-stdout>See ya!</local-command-stdout>"),
+        _user_str("actual user message"),
+    ]
     lines = _extract_messages(records, _START, _END, LOCAL_TZ)
-    assert lines == []
+    assert lines == ["User: actual user message"]
+
+
+def test_extract_keeps_user_messages_starting_with_unknown_tag():
+    records = [_user_str("<html>pasted markup</html>")]
+    lines = _extract_messages(records, _START, _END, LOCAL_TZ)
+    assert lines == ["User: <html>pasted markup</html>"]
 
 
 def test_extract_skips_out_of_window_records():

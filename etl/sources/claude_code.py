@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import zoneinfo
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,6 +19,21 @@ _SUMMARY_PROMPT = (
     "Start directly with the work, e.g. \"Debugged the rate-limiting bug in api.py...\" "
     "or \"Built the auth flow and wired it to the database.\""
 )
+
+
+_CLAUDE_CODE_SYSTEM_TAGS = frozenset({
+    "command-name",
+    "local-command-stdout",
+    "task-notification",
+    "system-reminder",
+})
+
+_SYSTEM_TAG_RE = re.compile(r"^<([a-zA-Z][a-zA-Z0-9_-]*)")
+
+
+def _is_system_message(text: str) -> bool:
+    m = _SYSTEM_TAG_RE.match(text)
+    return m is not None and m.group(1) in _CLAUDE_CODE_SYSTEM_TAGS
 
 
 def _parse_ts(raw: str) -> datetime | None:
@@ -48,7 +64,7 @@ def _extract_messages(
             content = r.get("message", {}).get("content", "")
             if isinstance(content, str):
                 text = content.strip()
-                if text and not text.startswith("<"):
+                if text and not _is_system_message(text):
                     lines.append(f"User: {text}")
             elif isinstance(content, list):
                 for block in content:
