@@ -359,9 +359,9 @@ def test_face_index_identify_no_match(tmp_path, fake_insightface):
     fake_insightface.get.return_value = [_make_face(ref_enc)]
     fi = FaceIndex(str(tmp_path))
 
-    # Orthogonal vector — cosine similarity = 0.0, below threshold
+    # Orthogonal non-unit vector — after normalization cosine similarity = 0.0, below threshold
     other_enc = np.zeros(512, dtype=np.float32)
-    other_enc[1] = 1.0
+    other_enc[1] = 5.0
     fake_insightface.get.return_value = [_make_face(other_enc)]
     result = fi.identify("/photo.png")
 
