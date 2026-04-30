@@ -24,16 +24,37 @@ _SUMMARY_PROMPT = (
 _CLAUDE_CODE_SYSTEM_TAGS = frozenset({
     "command-name",
     "local-command-stdout",
+    "local-command-caveat",
     "task-notification",
     "system-reminder",
 })
 
 _SYSTEM_TAG_RE = re.compile(r"^<([a-zA-Z][a-zA-Z0-9_-]*)")
 
+# Matches lines that are clearly terminal/build output rather than human text.
+# Docker build steps (#N ...), PowerShell prompts (PS C:\...), shell prompts ($ ).
+_BUILD_OUTPUT_START_RE = re.compile(r"^(#\d+[\s\[]|PS [A-Z]:\\|> |\$ )")
+
+# Marks where pasted terminal output begins inside an otherwise human message.
+_BUILD_OUTPUT_INLINE_RE = re.compile(r"\n(?:#\d+[\s\[]|PS [A-Z]:\\)")
+
+_MAX_USER_CHARS = 400
+_MAX_ASSISTANT_CHARS = 600
+
 
 def _is_system_message(text: str) -> bool:
     m = _SYSTEM_TAG_RE.match(text)
     return m is not None and m.group(1) in _CLAUDE_CODE_SYSTEM_TAGS
+
+
+def _trim_user_text(text: str) -> str:
+    """Strip pasted terminal/build output and truncate to a reasonable length."""
+    if _BUILD_OUTPUT_START_RE.match(text):
+        return ""
+    m = _BUILD_OUTPUT_INLINE_RE.search(text)
+    if m:
+        text = text[: m.start()].strip()
+    return text[:_MAX_USER_CHARS]
 
 
 def _parse_ts(raw: str) -> datetime | None:
@@ -65,20 +86,22 @@ def _extract_messages(
             if isinstance(content, str):
                 text = content.strip()
                 if text and not _is_system_message(text):
-                    lines.append(f"User: {text}")
+                    text = _trim_user_text(text)
+                    if text:
+                        lines.append(f"User: {text}")
             elif isinstance(content, list):
                 for block in content:
                     if not isinstance(block, dict) or block.get("type") != "text":
                         continue
                     text = block.get("text", "").strip()
                     if text and not text.startswith("[Request interrupted"):
-                        lines.append(f"User: {text}")
+                        lines.append(f"User: {text[:_MAX_USER_CHARS]}")
         elif rtype == "assistant":
             for block in r.get("message", {}).get("content", []):
                 if isinstance(block, dict) and block.get("type") == "text":
                     text = block.get("text", "").strip()
                     if text:
-                        lines.append(f"Assistant: {text}")
+                        lines.append(f"Assistant: {text[:_MAX_ASSISTANT_CHARS]}")
     return lines
 
 
