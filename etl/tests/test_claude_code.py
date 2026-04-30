@@ -7,7 +7,6 @@ import pytest
 from sources.claude_code import (
     ClaudeCodeSource,
     _extract_messages,
-    _truncate,
     _fmt_duration,
 )
 
@@ -148,34 +147,6 @@ def test_extract_multiple_assistant_text_blocks():
         "Assistant: Second observation after running",
     ]
 
-
-# --- _truncate ---
-
-def test_truncate_no_op_when_under_limit():
-    lines = ["User: hello", "Assistant: world"]
-    result = _truncate(lines, max_chars=10000, head_chars=4000, tail_chars=4000)
-    assert result == "User: hello\n\nAssistant: world"
-
-
-def test_truncate_head_plus_tail_when_over_limit():
-    lines = [f"Assistant: line {i} " + ("x" * 200) for i in range(100)]
-    result = _truncate(lines, max_chars=8000, head_chars=3000, tail_chars=3000)
-    assert "[...]" in result
-    assert len(result) < 8000 + 50  # some slack for the separator
-
-
-def test_truncate_head_reflects_start_of_session():
-    early = "User: This is the very first message"
-    lines = [early] + [f"Assistant: " + "x" * 200 for _ in range(100)]
-    result = _truncate(lines, max_chars=16000, head_chars=6400, tail_chars=6400)
-    assert result.startswith(early)
-
-
-def test_truncate_tail_reflects_end_of_session():
-    late = "User: This is the very last message"
-    lines = [f"Assistant: " + "x" * 200 for _ in range(100)] + [late]
-    result = _truncate(lines, max_chars=16000, head_chars=6400, tail_chars=6400)
-    assert result.endswith(late)
 
 
 # --- _fmt_duration ---

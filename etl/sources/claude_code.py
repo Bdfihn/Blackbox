@@ -9,15 +9,15 @@ from .base import Chunk
 log = logging.getLogger(__name__)
 
 _SUMMARY_PROMPT = (
-    "Summarize this coding session as a personal diary entry for the developer. "
-    "Write 2-3 sentences in first person, naming specific files, features, bugs, or decisions. "
-    'Start directly with the work, e.g. "Fixed the rate-limiting bug in api.py..." '
-    'or "Built the auth flow and wired it to the database..."'
+    "You are summarizing a coding session for a personal diary. "
+    "The input is a transcript of a conversation between a developer and an AI assistant. "
+    "Write exactly 2-3 sentences in first person describing what was worked on. "
+    "Focus on what was built, fixed, or decided — not the back-and-forth dialogue. "
+    "Name specific files, features, bugs, and decisions. "
+    "No filler phrases, no markdown, no bullet points, no advice. "
+    "Start directly with the work, e.g. \"Debugged the rate-limiting bug in api.py...\" "
+    "or \"Built the auth flow and wired it to the database.\""
 )
-
-_MAX_CONTENT_CHARS = 16000
-_HEAD_CHARS = 6400
-_TAIL_CHARS = 6400
 
 
 def _parse_ts(raw: str) -> datetime | None:
@@ -65,15 +65,6 @@ def _extract_messages(
                         lines.append(f"Assistant: {text}")
     return lines
 
-
-def _truncate(lines: list[str], max_chars: int, head_chars: int, tail_chars: int) -> str:
-    """Join lines; if over max_chars, keep head + tail with a gap marker."""
-    full = "\n\n".join(lines)
-    if len(full) <= max_chars:
-        return full
-    head = full[:head_chars]
-    tail = full[-tail_chars:]
-    return f"{head}\n\n[...]\n\n{tail}"
 
 
 class ClaudeCodeSource:
@@ -194,7 +185,7 @@ class ClaudeCodeSource:
         if not lines:
             return None
 
-        content_for_llm = _truncate(lines, _MAX_CONTENT_CHARS, _HEAD_CHARS, _TAIL_CHARS)
+        content_for_llm = "\n\n".join(lines)
 
         duration_secs = (session_end - session_start).total_seconds()
         duration_str = _fmt_duration(duration_secs)
