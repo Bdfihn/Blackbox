@@ -90,7 +90,11 @@ def upsert_chunks(chunks: list[Chunk], date_str: str):
 
     points = []
     for chunk in chunks:
-        chunk_id = hashlib.md5(chunk.text.encode()).hexdigest()
+        session_uuid = chunk.metadata.get("session_uuid") if chunk.metadata else None
+        if session_uuid:
+            chunk_id = hashlib.md5(f"{chunk.source}:{session_uuid}:{date_str}".encode()).hexdigest()
+        else:
+            chunk_id = hashlib.md5(chunk.text.encode()).hexdigest()
         vector = embed(chunk.text)
         points.append(PointStruct(
             id=chunk_id,

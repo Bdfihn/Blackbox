@@ -265,3 +265,54 @@ def test_get_chunks_skips_session_outside_window(tmp_path, monkeypatch):
     src, _ = _make_source(tmp_path, monkeypatch)
     chunks = src.get_chunks(_START, _END)
     assert chunks == []
+
+
+def test_get_chunks_includes_session_uuid_in_metadata(tmp_path, monkeypatch):
+    project = tmp_path / "MyProject"
+    project.mkdir()
+    _write_jsonl(project / "abc123.jsonl", [
+        _user_str("build the thing"),
+        _assistant(["Done"]),
+    ])
+    src, _ = _make_source(tmp_path, monkeypatch)
+    chunks = src.get_chunks(_START, _END)
+    assert len(chunks) == 1
+    assert chunks[0].metadata.get("session_uuid") == "abc123"
+
+
+def test_get_chunks_produces_one_chunk_per_session_file(tmp_path, monkeypatch):
+    """Each .jsonl file must produce at most one chunk — no duplication."""
+    project = tmp_path / "MyProject"
+    project.mkdir()
+    _write_jsonl(project / "session-a.jsonl", [
+        _user_str("task A"),
+        _assistant(["done A"]),
+    ])
+    _write_jsonl(project / "session-b.jsonl", [
+        _user_str("task B"),
+        _assistant(["done B"]),
+    ])
+    src, _ = _make_source(tmp_path, monkeypatch)
+    chunks = src.get_chunks(_START, _END)
+    assert len(chunks) == 2
+    uuids = [c.metadata.get("session_uuid") for c in chunks]
+    assert sorted(uuids) == ["session-a", "session-b"]
+
+
+def test_get_chunks_skips_subagent_directories(tmp_path, monkeypatch):
+    project = tmp_path / "MyProject"
+    project.mkdir()
+    _write_jsonl(project / "parent.jsonl", [
+        _user_str("parent task"),
+        _assistant(["parent done"]),
+    ])
+    subagents_dir = project / "parent" / "subagents"
+    subagents_dir.mkdir(parents=True)
+    _write_jsonl(subagents_dir / "agent-xyz.jsonl", [
+        _user_str("subagent task"),
+        _assistant(["subagent done"]),
+    ])
+    src, _ = _make_source(tmp_path, monkeypatch)
+    chunks = src.get_chunks(_START, _END)
+    assert len(chunks) == 1
+    assert chunks[0].metadata.get("session_uuid") == "parent"

@@ -221,6 +221,7 @@ class ClaudeCodeSource:
             source="claude_code",
             apps=["Claude Code"],
             total_secs=duration_secs,
+            metadata={"session_uuid": path.stem},
         )
 
     def _summarize(self, content: str) -> str:
