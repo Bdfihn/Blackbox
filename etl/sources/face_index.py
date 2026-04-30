@@ -61,7 +61,11 @@ class FaceIndex:
                     if emb is None:
                         log.warning(f"No embedding returned for {fpath} — skipping")
                         continue
-                    encodings.append(emb)
+                    norm = np.linalg.norm(emb)
+                    if norm == 0:
+                        log.warning(f"Zero-norm embedding for {fpath} — skipping")
+                        continue
+                    encodings.append(emb / norm)
                 except Exception as e:
                     log.warning(f"Failed to encode reference image {fpath}: {e}")
             if encodings:
@@ -92,6 +96,10 @@ class FaceIndex:
                 enc = face.embedding
                 if enc is None:
                     continue
+                norm = np.linalg.norm(enc)
+                if norm == 0:
+                    continue
+                enc = enc / norm
                 for person, ref_encs in self._encodings.items():
                     if any(float(np.dot(enc, ref)) >= _MATCH_THRESHOLD for ref in ref_encs):
                         matched.add(person)
