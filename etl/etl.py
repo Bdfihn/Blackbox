@@ -13,7 +13,6 @@ from pathlib import Path
 
 import requests
 import ollama
-import google.generativeai as genai
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
 
@@ -49,20 +48,11 @@ COLLECTION     = "blackbox"
 EMBED_MODEL    = "nomic-embed-text"
 LLM_MODEL      = "gemma4:e4b"
 
-GEMINI_API_KEY = os.getenv("GOOGLE_API_KEY", "")
-GEMINI_MODEL   = "gemini-2.5-flash"
-
 DIARY_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── Clients ───────────────────────────────────────────────────────────────────
 qdrant = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
 ollama_client = ollama.Client(host=f"http://{OLLAMA_HOST}:{OLLAMA_PORT}")
-
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-    _gemini_model = genai.GenerativeModel(GEMINI_MODEL)
-else:
-    _gemini_model = None
 
 
 def ensure_collection():
@@ -187,14 +177,6 @@ TIMELINE:
 TIMELINE END
 """
 
-    if _gemini_model:
-        try:
-            response = _gemini_model.generate_content(prompt)
-            return f"# {date}\n\n{response.text}\n"
-        except Exception as e:
-            log.warning(f"Gemini failed ({e}), falling back to Ollama for diary generation")
-
-    log.warning("Falling back to Ollama for diary generation")
     response = ollama_client.chat(
         model=LLM_MODEL,
         messages=[{"role": "user", "content": prompt}]
