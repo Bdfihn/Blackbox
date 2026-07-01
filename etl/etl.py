@@ -173,7 +173,10 @@ Rules:
 - For coding/work: describe what you were building or fixing at a high level. Do NOT reproduce commit messages verbatim. Name the project and what changed, not the git log.
 - For Claude Code sessions: describe what problem was being solved or what feature was being built, in plain language.
 - For health/steps: only mention if notable. Don't list hourly step counts.
-- If sleep data is present, use it to open the entry. Otherwise open with the first meaningful activity of the day.
+- For sleep: if a sleep chunk is present, use it to open the entry — lead with total sleep and mention the stage breakdown (Deep, REM, Core) only if the numbers are interesting (e.g., unusually low deep sleep).
+- For daily vitals (resting HR, HRV): mention briefly, especially if out of the ordinary. HRV is a proxy for recovery — low HRV after a hard workout or late night is worth noting.
+- For workouts: always mention. Include the type, duration, and calories if available.
+- If no sleep chunk, open with the first meaningful activity of the day.
 - Names are better than phone numbers. If a contact name is available, use it.
 - Allocate paragraph space proportional to how much time was actually spent on each activity."""
 
