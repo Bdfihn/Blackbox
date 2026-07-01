@@ -172,8 +172,6 @@ Rules:
 - For social activity: describe who you spent time with and how (texting, calls, in person) — don't list every individual message.
 - For coding/work: describe what you were building or fixing at a high level. Do NOT reproduce commit messages verbatim. Name the project and what changed, not the git log.
 - For Claude Code sessions: describe what problem was being solved or what feature was being built, in plain language.
-- For photos with "[with: names]" tags: those are the identified people in the photo — use their names naturally instead of describing "a young woman."
-- Connect the dots across sources: if someone appears in both photos and messages/calls on the same day, they were likely together in person — describe it that way.
 - For health/steps: only mention if notable. Don't list hourly step counts.
 - If sleep data is present, use it to open the entry. Otherwise open with the first meaningful activity of the day.
 - Names are better than phone numbers. If a contact name is available, use it.
