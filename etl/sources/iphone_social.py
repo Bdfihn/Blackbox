@@ -134,8 +134,12 @@ class IPhoneSocialSource:
                 app_counts[app] += 1
                 bundle_ids.add(item["bundle_id"])
                 for name in (item["sender_name"], item["recipient_name"]):
-                    if name and name.strip() and re.sub(r"\D", "", name)[-10:] != _SELF_PHONE:
-                        names.add(name.strip())
+                    if not name or not name.strip():
+                        continue
+                    digits = re.sub(r"\D", "", name)[-10:]
+                    if digits and _SELF_PHONE and digits == _SELF_PHONE:
+                        continue
+                    names.add(name.strip())
 
             app_summary = ", ".join(
                 f"{count} {app}"
