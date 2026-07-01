@@ -37,7 +37,7 @@ services:
       - TZ=America/New_York
       - IPHONE_BACKUP_PATH=/app/iphone_backup
       - IPHONE_BACKUP_PATH2=/app/iphone_backup2
-      - IPHONE_BACKUP_PASSWORD=[REDACTED]
+      - IPHONE_BACKUP_PASSWORD=${IPHONE_BACKUP_PASSWORD:-}
       - GIT_REPOS_ROOT=/app/git_repos
       - CLAUDE_TRANSCRIPTS=/app/claude_transcripts
       - SELF_PHONE=${SELF_PHONE:-}
