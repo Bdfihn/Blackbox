@@ -170,16 +170,17 @@ Rules:
 - Names are better than phone numbers. If a contact name is available, use it.
 - Allocate paragraph space proportional to how much time was actually spent on each activity."""
 
-    prompt = f"""{instructions}
-
-TIMELINE:
+    user_content = f"""TIMELINE:
 {timeline}
 TIMELINE END
 """
 
     response = ollama_client.chat(
         model=LLM_MODEL,
-        messages=[{"role": "user", "content": prompt}]
+        messages=[
+            {"role": "system", "content": instructions},
+            {"role": "user", "content": user_content},
+        ]
     )
     return f"# {date}\n\n{response['message']['content']}\n"
 
