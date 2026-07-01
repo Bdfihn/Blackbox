@@ -24,7 +24,6 @@ from sources import (
     GitSource,
     IPhoneHealthSource,
     IPhoneSocialSource,
-    IPhonePhotosSource,
     check_backup,
     day_bounds,
     Chunk,
@@ -41,7 +40,6 @@ LOCAL_TZ       = zoneinfo.ZoneInfo(os.getenv("TIMEZONE", "America/New_York"))
 AW_BASE        = f"http://{os.getenv('ACTIVITYWATCH_HOST', 'host.docker.internal')}:{os.getenv('ACTIVITYWATCH_PORT', 5600)}/api/0"
 GIT_REPOS_ROOT        = os.getenv("GIT_REPOS_ROOT", "")
 CLAUDE_TRANSCRIPTS    = os.getenv("CLAUDE_TRANSCRIPTS", "")
-FACES_DIR             = os.getenv("FACES_DIR", "")
 QDRANT_HOST    = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT    = int(os.getenv("QDRANT_PORT", 6333))
 OLLAMA_HOST    = os.getenv("OLLAMA_HOST", "localhost")
@@ -243,7 +241,6 @@ def run_etl(target_date: datetime | None = None):
             log.info(f"iPhone backup found: {udid} at {backuproot}")
             sources.append(IPhoneHealthSource(backup, LOCAL_TZ))
             sources.append(IPhoneSocialSource(backup, LOCAL_TZ))
-            sources.append(IPhonePhotosSource(backup, LOCAL_TZ, ollama_client, LLM_MODEL, FACES_DIR or None))
         else:
             log.info("No iPhone backup found — skipping iPhone data.")
     except Exception as e:
