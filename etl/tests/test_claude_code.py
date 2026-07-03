@@ -198,6 +198,7 @@ def _make_source(tmp_path, monkeypatch):
         local_tz=LOCAL_TZ,
         ollama_client=mock_ollama,
         llm_model="test-model",
+        num_ctx=32768,
     )
     return src, mock_ollama
 
@@ -218,6 +219,18 @@ def test_get_chunks_returns_chunk_for_valid_session(tmp_path, monkeypatch):
     chunks = src.get_chunks(_START, _END)
     assert len(chunks) == 1
     assert "MyProject" in chunks[0].text
+
+
+def test_summarize_sets_num_ctx_to_avoid_truncation(tmp_path, monkeypatch):
+    project = tmp_path / "MyProject"
+    project.mkdir()
+    _write_jsonl(project / "session.jsonl", [
+        _user_str("build the thing"),
+        _assistant(["Done, wrote foo.py"]),
+    ])
+    src, mock_ollama = _make_source(tmp_path, monkeypatch)
+    src.get_chunks(_START, _END)
+    assert mock_ollama.chat.call_args[1]["options"] == {"num_ctx": 32768}
 
 
 def test_get_chunks_sends_interleaved_content_to_llm(tmp_path, monkeypatch):

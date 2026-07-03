@@ -23,3 +23,14 @@ def test_generate_diary_entry_sends_instructions_as_system_message(monkeypatch):
 def test_generate_diary_entry_returns_no_activity_message_for_empty_chunks():
     result = etl.generate_diary_entry("2024-01-15", [])
     assert "No activity recorded" in result
+
+
+def test_generate_diary_entry_sets_num_ctx_to_avoid_truncation(monkeypatch):
+    mock_ollama = MagicMock()
+    mock_ollama.chat.return_value = {"message": {"content": "Diary body."}}
+    monkeypatch.setattr(etl, "ollama_client", mock_ollama)
+
+    chunks = [Chunk(window_start="2024-01-15T09:00:00", text="Woke up.", source="test")]
+    etl.generate_diary_entry("2024-01-15", chunks)
+
+    assert mock_ollama.chat.call_args[1]["options"] == {"num_ctx": 32768}

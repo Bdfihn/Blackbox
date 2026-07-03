@@ -107,11 +107,12 @@ def _extract_messages(
 
 
 class ClaudeCodeSource:
-    def __init__(self, transcripts_root: str, local_tz: zoneinfo.ZoneInfo, ollama_client, llm_model: str):
+    def __init__(self, transcripts_root: str, local_tz: zoneinfo.ZoneInfo, ollama_client, llm_model: str, num_ctx: int):
         self._root = Path(transcripts_root)
         self._local_tz = local_tz
         self._ollama = ollama_client
         self._llm_model = llm_model
+        self._num_ctx = num_ctx
 
     def get_chunks(self, start: datetime, end: datetime) -> list[Chunk]:
         if not self._root.is_dir():
@@ -254,6 +255,7 @@ class ClaudeCodeSource:
                 {"role": "system", "content": _SUMMARY_PROMPT},
                 {"role": "user", "content": content},
             ],
+            options={"num_ctx": self._num_ctx},
         )
         return response["message"]["content"].strip()
 

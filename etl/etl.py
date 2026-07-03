@@ -47,6 +47,7 @@ DIARY_DIR      = Path(os.getenv("DIARY_DIR", "/app/diary"))
 COLLECTION     = "blackbox"
 EMBED_MODEL    = "nomic-embed-text"
 LLM_MODEL      = "gemma4:e4b"
+LLM_NUM_CTX    = 32768  # Ollama defaults to 4096 and silently truncates the front of the prompt
 
 DIARY_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -180,7 +181,8 @@ TIMELINE END
         messages=[
             {"role": "system", "content": instructions},
             {"role": "user", "content": user_content},
-        ]
+        ],
+        options={"num_ctx": LLM_NUM_CTX},
     )
     return f"# {date}\n\n{response['message']['content']}\n"
 
@@ -216,7 +218,7 @@ def run_etl(target_date: datetime | None = None):
     if GIT_REPOS_ROOT:
         sources.append(GitSource(GIT_REPOS_ROOT, LOCAL_TZ))
     if CLAUDE_TRANSCRIPTS:
-        sources.append(ClaudeCodeSource(CLAUDE_TRANSCRIPTS, LOCAL_TZ, ollama_client, LLM_MODEL))
+        sources.append(ClaudeCodeSource(CLAUDE_TRANSCRIPTS, LOCAL_TZ, ollama_client, LLM_MODEL, LLM_NUM_CTX))
 
     try:
         from iOSbackup import iOSbackup as _IOSBackup
