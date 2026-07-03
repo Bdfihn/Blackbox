@@ -9,17 +9,22 @@ log = logging.getLogger(__name__)
 
 BUCKET_MINUTES = 60
 
-# data_type constants (confirmed against healthdb_secure.sqlite, iOS 17-18)
+# data_type constants (verified against healthdb_secure.sqlite unit strings and
+# value ranges; e.g. 172 is environmental audio dB, NOT HRV)
 _STEPS_TYPE       = 7    # HKQuantityTypeIdentifierStepCount
 _HR_TYPE          = 5    # HKQuantityTypeIdentifierHeartRate (beats/sec)
 _DISTANCE_TYPE    = 8    # HKQuantityTypeIdentifierDistanceWalkingRunning (meters)
 _BASAL_CAL_TYPE   = 9    # HKQuantityTypeIdentifierBasalEnergyBurned (kcal)
 _ACTIVE_CAL_TYPE  = 10   # HKQuantityTypeIdentifierActiveEnergyBurned (kcal)
 _SLEEP_TYPE       = 63   # HKCategoryTypeIdentifierSleepAnalysis
-_HRV_TYPE         = 172  # HKQuantityTypeIdentifierHeartRateVariabilitySDNN (ms)
+_HRV_TYPE         = 139  # HKQuantityTypeIdentifierHeartRateVariabilitySDNN (ms)
 _RESTING_HR_TYPE  = 118  # HKQuantityTypeIdentifierRestingHeartRate (bpm)
-_RESP_RATE_TYPE   = 259  # HKQuantityTypeIdentifierRespiratoryRate (breaths/min, sleep)
+_RESP_RATE_TYPE   = 61   # HKQuantityTypeIdentifierRespiratoryRate (breaths/sec)
 _VO2_MAX_TYPE     = 124  # HKQuantityTypeIdentifierVO2Max (ml/kg/min)
+_WALKING_HR_TYPE  = 137  # HKQuantityTypeIdentifierWalkingHeartRateAverage (bpm)
+_EXERCISE_MIN_TYPE = 75  # HKQuantityTypeIdentifierAppleExerciseTime (min)
+_DAYLIGHT_TYPE    = 279  # HKQuantityTypeIdentifierTimeInDaylight (min)
+_EFFORT_TYPE      = 286  # HKQuantityTypeIdentifierPhysicalEffort (METs)
 
 # HKCategoryValueSleepAnalysis values
 _SLEEP_AWAKE = 1
@@ -27,15 +32,36 @@ _SLEEP_CORE  = 3
 _SLEEP_DEEP  = 4
 _SLEEP_REM   = 5
 
-# HKWorkoutActivityType raw values (confirmed against Apple HealthKit framework)
+# HKWorkoutActivityType raw values (Apple HealthKit enum)
 _WORKOUT_NAMES = {
-    9:  "Cross Training",   13: "Cycling",          22: "Hiking",
-    24: "Functional Strength", 28: "Hiking",         33: "Mind & Body",
-    37: "Recovery",         41: "Running",           43: "Skating",
-    47: "Stair Climbing",   49: "Swimming",          52: "Track & Field",
-    53: "Strength Training", 55: "Walking",          56: "Water Fitness",
-    60: "Yoga",             63: "Core Training",     66: "Flexibility",
-    67: "HIIT",             77: "Mixed Cardio",      86: "Cooldown",
+    1:  "American Football", 2:  "Archery",          3:  "Australian Football",
+    4:  "Badminton",        5:  "Baseball",          6:  "Basketball",
+    7:  "Bowling",          8:  "Boxing",            9:  "Climbing",
+    10: "Cricket",          11: "Cross Training",    12: "Curling",
+    13: "Cycling",          14: "Dance",             16: "Elliptical",
+    17: "Equestrian Sports", 18: "Fencing",          19: "Fishing",
+    20: "Functional Strength Training", 21: "Golf",  22: "Gymnastics",
+    23: "Handball",         24: "Hiking",            25: "Hockey",
+    26: "Hunting",          27: "Lacrosse",          28: "Martial Arts",
+    29: "Mind & Body",      30: "Mixed Metabolic Cardio", 31: "Paddle Sports",
+    32: "Play",             33: "Preparation & Recovery", 34: "Racquetball",
+    35: "Rowing",           36: "Rugby",             37: "Running",
+    38: "Sailing",          39: "Skating",           40: "Snow Sports",
+    41: "Soccer",           42: "Softball",          43: "Squash",
+    44: "Stair Climbing",   45: "Surfing",           46: "Swimming",
+    47: "Table Tennis",     48: "Tennis",            49: "Track & Field",
+    50: "Strength Training", 51: "Volleyball",       52: "Walking",
+    53: "Water Fitness",    54: "Water Polo",        55: "Water Sports",
+    56: "Wrestling",        57: "Yoga",              58: "Barre",
+    59: "Core Training",    60: "Cross Country Skiing", 61: "Downhill Skiing",
+    62: "Flexibility",      63: "HIIT",              64: "Jump Rope",
+    65: "Kickboxing",       66: "Pilates",           67: "Snowboarding",
+    68: "Stairs",           69: "Step Training",     70: "Wheelchair Walk Pace",
+    71: "Wheelchair Run Pace", 72: "Tai Chi",        73: "Mixed Cardio",
+    74: "Hand Cycling",     75: "Disc Sports",       76: "Fitness Gaming",
+    77: "Cardio Dance",     78: "Social Dance",      79: "Pickleball",
+    80: "Cooldown",         82: "Swim Bike Run",     83: "Transition",
+    84: "Underwater Diving", 3000: "Other",
 }
 
 
@@ -74,28 +100,33 @@ class IPhoneHealthSource:
         rows = conn.execute(
             "SELECT s.start_date, qs.quantity, s.data_type "
             "FROM samples s JOIN quantity_samples qs ON qs.ROWID = s.ROWID "
-            "WHERE s.data_type IN (?, ?) AND s.start_date >= ? AND s.start_date < ?",
-            (_STEPS_TYPE, _HR_TYPE, apple_start, apple_end),
+            "WHERE s.data_type IN (?, ?, ?) AND s.start_date >= ? AND s.start_date < ?",
+            (_STEPS_TYPE, _HR_TYPE, _EFFORT_TYPE, apple_start, apple_end),
         ).fetchall()
 
-        hourly_steps: dict[datetime, float] = {}
-        hourly_hr:    dict[datetime, list[float]] = {}
+        hourly_steps:  dict[datetime, float] = {}
+        hourly_hr:     dict[datetime, list[float]] = {}
+        hourly_effort: dict[datetime, list[float]] = {}
 
         for start_ts, qty, data_type in rows:
             ts = apple_ts(start_ts).astimezone(self._local_tz)
             hour = floor_dt(ts, 60)
             if data_type == _STEPS_TYPE:
                 hourly_steps[hour] = hourly_steps.get(hour, 0) + qty
-            else:
+            elif data_type == _HR_TYPE:
                 hourly_hr.setdefault(hour, []).append(qty * 60)  # beats/sec → bpm
+            else:
+                hourly_effort.setdefault(hour, []).append(qty)
 
         chunks = []
-        for hour in sorted(set(hourly_steps) | set(hourly_hr)):
+        for hour in sorted(set(hourly_steps) | set(hourly_hr) | set(hourly_effort)):
             parts = []
             if hour in hourly_steps:
                 parts.append(f"{int(hourly_steps[hour])} steps")
             if hour in hourly_hr:
                 parts.append(f"avg HR {round(sum(hourly_hr[hour]) / len(hourly_hr[hour]))}bpm")
+            if hour in hourly_effort:
+                parts.append(f"avg effort {sum(hourly_effort[hour]) / len(hourly_effort[hour]):.1f} METs")
             chunks.append(Chunk(
                 window_start=hour.isoformat(),
                 text=f"[{hour.strftime('%Y-%m-%d %H:%M')}] Activity: {', '.join(parts)}.",
@@ -157,7 +188,7 @@ class IPhoneHealthSource:
             (_RESP_RATE_TYPE, apple_start, apple_end),
         ).fetchone()
         if resp_rows and resp_rows[0]:
-            text += f" Avg respiratory rate: {resp_rows[0]:.1f} breaths/min."
+            text += f" Avg respiratory rate: {resp_rows[0] * 60:.1f} breaths/min."  # breaths/sec → breaths/min
 
         return [Chunk(
             window_start=window_start.isoformat(),
@@ -183,12 +214,33 @@ class IPhoneHealthSource:
             (_HRV_TYPE, apple_start, apple_end),
         ).fetchone()
 
+        walking_hr_row = conn.execute(
+            "SELECT AVG(qs.quantity) "
+            "FROM samples s JOIN quantity_samples qs ON qs.ROWID = s.ROWID "
+            "WHERE s.data_type = ? AND s.start_date >= ? AND s.start_date < ?",
+            (_WALKING_HR_TYPE, apple_start, apple_end),
+        ).fetchone()
+
         vo2_row = conn.execute(
             "SELECT qs.quantity "
             "FROM samples s JOIN quantity_samples qs ON qs.ROWID = s.ROWID "
             "WHERE s.data_type = ? AND s.start_date >= ? AND s.start_date < ? "
             "ORDER BY s.start_date DESC LIMIT 1",
             (_VO2_MAX_TYPE, apple_start, apple_end),
+        ).fetchone()
+
+        exercise_row = conn.execute(
+            "SELECT SUM(qs.quantity) "
+            "FROM samples s JOIN quantity_samples qs ON qs.ROWID = s.ROWID "
+            "WHERE s.data_type = ? AND s.start_date >= ? AND s.start_date < ?",
+            (_EXERCISE_MIN_TYPE, apple_start, apple_end),
+        ).fetchone()
+
+        daylight_row = conn.execute(
+            "SELECT SUM(qs.quantity) "
+            "FROM samples s JOIN quantity_samples qs ON qs.ROWID = s.ROWID "
+            "WHERE s.data_type = ? AND s.start_date >= ? AND s.start_date < ?",
+            (_DAYLIGHT_TYPE, apple_start, apple_end),
         ).fetchone()
 
         parts = []
@@ -199,8 +251,14 @@ class IPhoneHealthSource:
             parts.append(f"resting HR {round(resting_hr_row[1])}bpm")
         if hrv_row and hrv_row[0]:
             parts.append(f"HRV {round(hrv_row[0])}ms")
+        if walking_hr_row and walking_hr_row[0]:
+            parts.append(f"walking HR avg {round(walking_hr_row[0])}bpm")
         if vo2_row:
             parts.append(f"VO2 max {vo2_row[0]:.1f} ml/kg/min")
+        if exercise_row and exercise_row[0]:
+            parts.append(f"{round(exercise_row[0])} exercise min")
+        if daylight_row and daylight_row[0]:
+            parts.append(f"{round(daylight_row[0])} min daylight")
 
         if not parts:
             return []
