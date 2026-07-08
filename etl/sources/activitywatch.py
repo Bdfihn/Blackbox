@@ -9,7 +9,7 @@ from .base import Chunk, floor_dt
 
 log = logging.getLogger(__name__)
 
-CHUNK_MINUTES = 5
+WINDOW_MINUTES = 5
 
 # aw-server rejects requests whose Host header isn't localhost (DNS-rebinding
 # protection); from inside the container we reach it via host.docker.internal.
@@ -57,10 +57,10 @@ def _clip_events(events: list[dict], intervals: list[tuple[datetime, datetime]])
 
 
 class ActivityWatchSource:
-    def __init__(self, aw_base: str, local_tz: zoneinfo.ZoneInfo, chunk_minutes: int = CHUNK_MINUTES):
+    def __init__(self, aw_base: str, local_tz: zoneinfo.ZoneInfo, window_minutes: int = WINDOW_MINUTES):
         self._aw_base = aw_base
         self._local_tz = local_tz
-        self._chunk_minutes = chunk_minutes
+        self._window_minutes = window_minutes
 
     def get_chunks(self, start: datetime, end: datetime) -> list[Chunk]:
         try:
@@ -132,7 +132,7 @@ class ActivityWatchSource:
         if not events:
             return []
 
-        buckets: dict[datetime, list] = {}
+        windows: dict[datetime, list] = {}
 
         for event in events:
             ts = _parse_ts(event["timestamp"]).astimezone(self._local_tz)
@@ -141,11 +141,11 @@ class ActivityWatchSource:
             app = data.get("app", "unknown")
             title = data.get("title", "")
 
-            floored = floor_dt(ts, self._chunk_minutes)
-            buckets.setdefault(floored, []).append({"app": app, "title": title, "duration_secs": duration})
+            floored = floor_dt(ts, self._window_minutes)
+            windows.setdefault(floored, []).append({"app": app, "title": title, "duration_secs": duration})
 
         chunks = []
-        for window_start, items in sorted(buckets.items()):
+        for window_start, items in sorted(windows.items()):
             total = sum(i["duration_secs"] for i in items)
             app_totals: Counter[str] = Counter()
             for i in items:
@@ -159,7 +159,7 @@ class ActivityWatchSource:
             ]
             text = (
                 f"[{window_start.strftime('%Y-%m-%d %H:%M')}] "
-                f"PC activity for {self._chunk_minutes} minutes. "
+                f"PC activity for {self._window_minutes} minutes. "
                 f"Top apps: {', '.join(f'{a}({round(s/60,1)}m)' for a, s in top_apps)}. "
                 f"Details: {'; '.join(descriptions[:10])}"
             )

@@ -6,11 +6,11 @@ from collections import Counter
 from datetime import datetime
 
 from .base import Chunk, floor_dt
-from .iphone_backup import apple_ts, open_backup_db, to_apple_secs
+from .iphone_backup import from_apple_secs, open_backup_db, to_apple_secs
 
 log = logging.getLogger(__name__)
 
-BUCKET_MINUTES = 15
+WINDOW_MINUTES = 15
 
 _BUNDLE_NAMES = {
     "com.apple.MobileSMS": "Messages",
@@ -89,7 +89,7 @@ def parse_interactions(
 
         return [
             {
-                "timestamp": apple_ts(start_date).astimezone(local_tz),
+                "timestamp": from_apple_secs(start_date).astimezone(local_tz),
                 "bundle_id": bundle_id or "",
                 "direction": direction,
                 "sender_name": sender_name,
@@ -114,14 +114,14 @@ class IPhoneSocialSource:
         if not records:
             return []
 
-        buckets: dict[datetime, list[dict]] = {}
+        windows: dict[datetime, list[dict]] = {}
         for r in records:
-            key = floor_dt(r["timestamp"], BUCKET_MINUTES)
-            buckets.setdefault(key, []).append(r)
+            key = floor_dt(r["timestamp"], WINDOW_MINUTES)
+            windows.setdefault(key, []).append(r)
 
         chunks = []
-        for bucket_time in sorted(buckets):
-            items = buckets[bucket_time]
+        for window_start in sorted(windows):
+            items = windows[window_start]
 
             app_counts: Counter[str] = Counter()
             names: set[str] = set()
@@ -145,15 +145,15 @@ class IPhoneSocialSource:
             )
             contact_part = f" Contacts: {', '.join(sorted(names))}." if names else ""
             text = (
-                f"[{bucket_time.strftime('%Y-%m-%d %H:%M')}] "
+                f"[{window_start.strftime('%Y-%m-%d %H:%M')}] "
                 f"Social activity: {app_summary}.{contact_part}"
             )
 
             chunks.append(Chunk(
-                window_start=bucket_time.isoformat(),
+                window_start=window_start.isoformat(),
                 text=text,
                 apps=sorted(app_counts.keys()),
-                total_secs=BUCKET_MINUTES * 60,
+                total_secs=WINDOW_MINUTES * 60,
                 source="iphone_social",
                 metadata={
                     "event_count": len(items),

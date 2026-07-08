@@ -12,7 +12,10 @@ def day_bounds(date: datetime) -> tuple[datetime, datetime]:
 
 
 def floor_dt(ts: datetime, minutes: int) -> datetime:
-    """Floor a datetime to the nearest multiple of `minutes`."""
+    """Floor a datetime down to a multiple of `minutes` past the hour.
+
+    `minutes` must divide 60 — the floor is within the current hour only.
+    """
     return ts.replace(minute=(ts.minute // minutes) * minutes, second=0, microsecond=0)
 
 

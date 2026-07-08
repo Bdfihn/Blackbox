@@ -3,11 +3,11 @@ import zoneinfo
 from datetime import datetime
 
 from .base import Chunk, floor_dt, fmt_duration
-from .iphone_backup import apple_ts, open_backup_db, to_apple_secs
+from .iphone_backup import from_apple_secs, open_backup_db, to_apple_secs
 
 log = logging.getLogger(__name__)
 
-BUCKET_MINUTES = 60
+WINDOW_MINUTES = 60
 
 # data_type constants (verified against healthdb_secure.sqlite unit strings and
 # value ranges; e.g. 172 is environmental audio dB, NOT HRV)
@@ -65,7 +65,7 @@ _WORKOUT_NAMES = {
 }
 
 
-_QUANTITY_WHERE = (
+_QUANTITY_FROM_WHERE = (
     "FROM samples s JOIN quantity_samples qs ON qs.ROWID = s.ROWID "
     "WHERE s.data_type = ? AND s.start_date >= ? AND s.start_date < ?"
 )
@@ -74,17 +74,17 @@ _QUANTITY_WHERE = (
 def _agg_quantity(conn, agg: str, data_type: int, apple_start: float, apple_end: float) -> float | None:
     """Aggregate (AVG/SUM) of a quantity type over the window, or None."""
     row = conn.execute(
-        f"SELECT {agg}(qs.quantity) {_QUANTITY_WHERE}",
+        f"SELECT {agg}(qs.quantity) {_QUANTITY_FROM_WHERE}",
         (data_type, apple_start, apple_end),
     ).fetchone()
     return row[0] if row else None
 
 
-def _edge_quantity(conn, data_type: int, apple_start: float, apple_end: float, latest: bool = False) -> tuple[float, float] | None:
+def _first_or_last_quantity(conn, data_type: int, apple_start: float, apple_end: float, latest: bool = False) -> tuple[float, float] | None:
     """(start_date, quantity) of the first (or latest) sample in the window, or None."""
     order = "DESC" if latest else "ASC"
     return conn.execute(
-        f"SELECT s.start_date, qs.quantity {_QUANTITY_WHERE} ORDER BY s.start_date {order} LIMIT 1",
+        f"SELECT s.start_date, qs.quantity {_QUANTITY_FROM_WHERE} ORDER BY s.start_date {order} LIMIT 1",
         (data_type, apple_start, apple_end),
     ).fetchone()
 
@@ -125,8 +125,8 @@ class IPhoneHealthSource:
         hourly_effort: dict[datetime, list[float]] = {}
 
         for start_ts, qty, data_type in rows:
-            ts = apple_ts(start_ts).astimezone(self._local_tz)
-            hour = floor_dt(ts, BUCKET_MINUTES)
+            ts = from_apple_secs(start_ts).astimezone(self._local_tz)
+            hour = floor_dt(ts, WINDOW_MINUTES)
             if data_type == _STEPS_TYPE:
                 hourly_steps[hour] = hourly_steps.get(hour, 0) + qty
             elif data_type == _HR_TYPE:
@@ -146,7 +146,7 @@ class IPhoneHealthSource:
             chunks.append(Chunk(
                 window_start=hour.isoformat(),
                 text=f"[{hour.strftime('%Y-%m-%d %H:%M')}] Activity: {', '.join(parts)}.",
-                apps=[], total_secs=BUCKET_MINUTES * 60, source="iphone_health",
+                apps=[], total_secs=WINDOW_MINUTES * 60, source="iphone_health",
             ))
         return chunks
 
@@ -165,7 +165,7 @@ class IPhoneHealthSource:
 
         # Find the earliest sleep start as the anchor for the chunk
         earliest_start_ts = min(r[0] for r in rows)
-        window_start = apple_ts(earliest_start_ts).astimezone(self._local_tz)
+        window_start = from_apple_secs(earliest_start_ts).astimezone(self._local_tz)
 
         stage_secs: dict[int, float] = {}
         for start_ts, end_ts, value in rows:
@@ -196,7 +196,8 @@ class IPhoneHealthSource:
                 f"Sleep: {fmt_duration(total_s)} total — {', '.join(parts)}."
             )
 
-        # Append avg respiratory rate if available for the same window
+        # Avg respiratory rate over the whole logical day, not just the sleep
+        # samples above — Apple only records it during sleep, so they coincide.
         resp_rate = _agg_quantity(conn, "AVG", _RESP_RATE_TYPE, apple_start, apple_end)
         if resp_rate:
             text += f" Avg respiratory rate: {resp_rate * 60:.1f} breaths/min."  # breaths/sec → breaths/min
@@ -210,10 +211,10 @@ class IPhoneHealthSource:
     # ── Daily vitals ──────────────────────────────────────────────────────────
 
     def _vitals_chunks(self, conn, apple_start: float, apple_end: float) -> list[Chunk]:
-        resting_hr = _edge_quantity(conn, _RESTING_HR_TYPE, apple_start, apple_end)
+        resting_hr = _first_or_last_quantity(conn, _RESTING_HR_TYPE, apple_start, apple_end)
         hrv        = _agg_quantity(conn, "AVG", _HRV_TYPE, apple_start, apple_end)
         walking_hr = _agg_quantity(conn, "AVG", _WALKING_HR_TYPE, apple_start, apple_end)
-        vo2_max    = _edge_quantity(conn, _VO2_MAX_TYPE, apple_start, apple_end, latest=True)
+        vo2_max    = _first_or_last_quantity(conn, _VO2_MAX_TYPE, apple_start, apple_end, latest=True)
         exercise   = _agg_quantity(conn, "SUM", _EXERCISE_MIN_TYPE, apple_start, apple_end)
         daylight   = _agg_quantity(conn, "SUM", _DAYLIGHT_TYPE, apple_start, apple_end)
 
@@ -221,7 +222,7 @@ class IPhoneHealthSource:
         ts = None
 
         if resting_hr:
-            ts = apple_ts(resting_hr[0]).astimezone(self._local_tz)
+            ts = from_apple_secs(resting_hr[0]).astimezone(self._local_tz)
             parts.append(f"resting HR {round(resting_hr[1])}bpm")
         if hrv:
             parts.append(f"HRV {round(hrv)}ms")
@@ -238,7 +239,7 @@ class IPhoneHealthSource:
             return []
 
         if ts is None:
-            ts = apple_ts(apple_start).astimezone(self._local_tz)
+            ts = from_apple_secs(apple_start).astimezone(self._local_tz)
 
         return [Chunk(
             window_start=ts.isoformat(),
@@ -275,7 +276,7 @@ class IPhoneHealthSource:
 
         chunks = []
         for rowid, activity_type, start_ts, end_ts, duration_secs in workouts:
-            ts = apple_ts(start_ts).astimezone(self._local_tz)
+            ts = from_apple_secs(start_ts).astimezone(self._local_tz)
             name = _WORKOUT_NAMES.get(activity_type, f"Workout (type {activity_type})")
             dur = fmt_duration(duration_secs or ((end_ts or start_ts) - start_ts))
 

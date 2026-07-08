@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 APPLE_EPOCH = datetime(2001, 1, 1, tzinfo=timezone.utc)
 
 
-def apple_ts(apple_secs: float) -> datetime:
+def from_apple_secs(apple_secs: float) -> datetime:
     """Convert Apple CoreData timestamp (seconds since 2001-01-01 UTC) to UTC datetime."""
     return APPLE_EPOCH + timedelta(seconds=apple_secs)
 
@@ -18,7 +18,7 @@ def to_apple_secs(dt: datetime) -> float:
     return (dt.astimezone(timezone.utc) - APPLE_EPOCH).total_seconds()
 
 
-def check_backup() -> tuple[str, str] | None:
+def find_backup() -> tuple[str, str] | None:
     """Scan configured backup paths for a valid iOS backup.
 
     Checks IPHONE_BACKUP_PATH then IPHONE_BACKUP_PATH2. A valid backup is a

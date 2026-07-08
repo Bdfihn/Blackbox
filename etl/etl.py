@@ -22,7 +22,7 @@ from sources import (
     GitSource,
     IPhoneHealthSource,
     IPhoneSocialSource,
-    check_backup,
+    find_backup,
     day_bounds,
     Chunk,
 )
@@ -221,7 +221,7 @@ def run_etl(target_date: datetime | None = None):
 
     try:
         from iOSbackup import iOSbackup as IOSBackup
-        backup_info = check_backup()
+        backup_info = find_backup()
         if backup_info:
             backuproot, udid = backup_info
             password = os.getenv("IPHONE_BACKUP_PASSWORD", "")
