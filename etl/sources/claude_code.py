@@ -111,7 +111,6 @@ def _extract_messages(
     return lines
 
 
-
 class ClaudeCodeSource:
     def __init__(self, transcripts_root: str, local_tz: zoneinfo.ZoneInfo, ollama_client, llm_model: str, num_ctx: int):
         self._root = Path(transcripts_root)
@@ -160,7 +159,7 @@ class ClaudeCodeSource:
                 skipped_contained += 1
                 continue
             try:
-                chunk = self._process_session(jsonl_file, start, end)
+                chunk = self._process_session(jsonl_file, start, end, s, e)
                 if chunk:
                     chunks.append(chunk)
             except Exception as exc:
@@ -193,7 +192,20 @@ class ClaudeCodeSource:
                     result.append(ts)
         return result
 
-    def _process_session(self, path: Path, start: datetime, end: datetime) -> Chunk | None:
+    def _process_session(
+        self,
+        path: Path,
+        start: datetime,
+        end: datetime,
+        session_start: datetime,
+        session_end: datetime,
+    ) -> Chunk | None:
+        """Summarize one session file into a Chunk.
+
+        session_start/session_end are the file's in-window timestamp range
+        (already computed by get_chunks); using them instead of the file's
+        full range prevents resumed sessions from showing multi-day durations.
+        """
         records = []
         with path.open(encoding="utf-8") as f:
             for line in f:
@@ -208,22 +220,6 @@ class ClaudeCodeSource:
         if not records:
             return None
 
-        # Only use timestamps within the target window for duration and anchor time.
-        # This prevents resumed sessions from showing absurd multi-day durations.
-        window_ts = []
-        for r in records:
-            raw = r.get("timestamp")
-            if not raw:
-                continue
-            ts = _parse_ts(raw)
-            if ts and start <= ts.astimezone(self._local_tz) < end:
-                window_ts.append(ts)
-
-        if not window_ts:
-            return None
-
-        session_start = min(window_ts)
-        session_end = max(window_ts)
         local_start = session_start.astimezone(self._local_tz)
 
         lines = _extract_messages(records, start, end, self._local_tz)

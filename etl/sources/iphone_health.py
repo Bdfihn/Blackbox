@@ -65,6 +65,30 @@ _WORKOUT_NAMES = {
 }
 
 
+_QUANTITY_WHERE = (
+    "FROM samples s JOIN quantity_samples qs ON qs.ROWID = s.ROWID "
+    "WHERE s.data_type = ? AND s.start_date >= ? AND s.start_date < ?"
+)
+
+
+def _agg_quantity(conn, agg: str, data_type: int, apple_start: float, apple_end: float) -> float | None:
+    """Aggregate (AVG/SUM) of a quantity type over the window, or None."""
+    row = conn.execute(
+        f"SELECT {agg}(qs.quantity) {_QUANTITY_WHERE}",
+        (data_type, apple_start, apple_end),
+    ).fetchone()
+    return row[0] if row else None
+
+
+def _edge_quantity(conn, data_type: int, apple_start: float, apple_end: float, latest: bool = False) -> tuple[float, float] | None:
+    """(start_date, quantity) of the first (or latest) sample in the window, or None."""
+    order = "DESC" if latest else "ASC"
+    return conn.execute(
+        f"SELECT s.start_date, qs.quantity {_QUANTITY_WHERE} ORDER BY s.start_date {order} LIMIT 1",
+        (data_type, apple_start, apple_end),
+    ).fetchone()
+
+
 class IPhoneHealthSource:
     def __init__(self, backup, local_tz: zoneinfo.ZoneInfo):
         self._backup = backup
@@ -80,7 +104,7 @@ class IPhoneHealthSource:
                 raise FileNotFoundError("healthdb_secure.sqlite not found in backup")
             chunks.extend(self._activity_chunks(conn, apple_start, apple_end))
             chunks.extend(self._sleep_chunks(conn, apple_start, apple_end))
-            chunks.extend(self._vitals_chunk(conn, apple_start, apple_end))
+            chunks.extend(self._vitals_chunks(conn, apple_start, apple_end))
             chunks.extend(self._workout_chunks(conn, apple_start, apple_end))
 
         log.info(f"  healthdb: {len(chunks)} chunks")
@@ -102,7 +126,7 @@ class IPhoneHealthSource:
 
         for start_ts, qty, data_type in rows:
             ts = apple_ts(start_ts).astimezone(self._local_tz)
-            hour = floor_dt(ts, 60)
+            hour = floor_dt(ts, BUCKET_MINUTES)
             if data_type == _STEPS_TYPE:
                 hourly_steps[hour] = hourly_steps.get(hour, 0) + qty
             elif data_type == _HR_TYPE:
@@ -173,14 +197,9 @@ class IPhoneHealthSource:
             )
 
         # Append avg respiratory rate if available for the same window
-        resp_rows = conn.execute(
-            "SELECT AVG(qs.quantity) "
-            "FROM samples s JOIN quantity_samples qs ON qs.ROWID = s.ROWID "
-            "WHERE s.data_type = ? AND s.start_date >= ? AND s.start_date < ?",
-            (_RESP_RATE_TYPE, apple_start, apple_end),
-        ).fetchone()
-        if resp_rows and resp_rows[0]:
-            text += f" Avg respiratory rate: {resp_rows[0] * 60:.1f} breaths/min."  # breaths/sec → breaths/min
+        resp_rate = _agg_quantity(conn, "AVG", _RESP_RATE_TYPE, apple_start, apple_end)
+        if resp_rate:
+            text += f" Avg respiratory rate: {resp_rate * 60:.1f} breaths/min."  # breaths/sec → breaths/min
 
         return [Chunk(
             window_start=window_start.isoformat(),
@@ -188,69 +207,32 @@ class IPhoneHealthSource:
             apps=[], total_secs=int(total_s), source="iphone_health",
         )]
 
-    # ── Daily vitals: resting HR + HRV ───────────────────────────────────────
+    # ── Daily vitals ──────────────────────────────────────────────────────────
 
-    def _vitals_chunk(self, conn, apple_start: float, apple_end: float) -> list[Chunk]:
-        resting_hr_row = conn.execute(
-            "SELECT s.start_date, qs.quantity "
-            "FROM samples s JOIN quantity_samples qs ON qs.ROWID = s.ROWID "
-            "WHERE s.data_type = ? AND s.start_date >= ? AND s.start_date < ? "
-            "ORDER BY s.start_date LIMIT 1",
-            (_RESTING_HR_TYPE, apple_start, apple_end),
-        ).fetchone()
-
-        hrv_row = conn.execute(
-            "SELECT AVG(qs.quantity) "
-            "FROM samples s JOIN quantity_samples qs ON qs.ROWID = s.ROWID "
-            "WHERE s.data_type = ? AND s.start_date >= ? AND s.start_date < ?",
-            (_HRV_TYPE, apple_start, apple_end),
-        ).fetchone()
-
-        walking_hr_row = conn.execute(
-            "SELECT AVG(qs.quantity) "
-            "FROM samples s JOIN quantity_samples qs ON qs.ROWID = s.ROWID "
-            "WHERE s.data_type = ? AND s.start_date >= ? AND s.start_date < ?",
-            (_WALKING_HR_TYPE, apple_start, apple_end),
-        ).fetchone()
-
-        vo2_row = conn.execute(
-            "SELECT qs.quantity "
-            "FROM samples s JOIN quantity_samples qs ON qs.ROWID = s.ROWID "
-            "WHERE s.data_type = ? AND s.start_date >= ? AND s.start_date < ? "
-            "ORDER BY s.start_date DESC LIMIT 1",
-            (_VO2_MAX_TYPE, apple_start, apple_end),
-        ).fetchone()
-
-        exercise_row = conn.execute(
-            "SELECT SUM(qs.quantity) "
-            "FROM samples s JOIN quantity_samples qs ON qs.ROWID = s.ROWID "
-            "WHERE s.data_type = ? AND s.start_date >= ? AND s.start_date < ?",
-            (_EXERCISE_MIN_TYPE, apple_start, apple_end),
-        ).fetchone()
-
-        daylight_row = conn.execute(
-            "SELECT SUM(qs.quantity) "
-            "FROM samples s JOIN quantity_samples qs ON qs.ROWID = s.ROWID "
-            "WHERE s.data_type = ? AND s.start_date >= ? AND s.start_date < ?",
-            (_DAYLIGHT_TYPE, apple_start, apple_end),
-        ).fetchone()
+    def _vitals_chunks(self, conn, apple_start: float, apple_end: float) -> list[Chunk]:
+        resting_hr = _edge_quantity(conn, _RESTING_HR_TYPE, apple_start, apple_end)
+        hrv        = _agg_quantity(conn, "AVG", _HRV_TYPE, apple_start, apple_end)
+        walking_hr = _agg_quantity(conn, "AVG", _WALKING_HR_TYPE, apple_start, apple_end)
+        vo2_max    = _edge_quantity(conn, _VO2_MAX_TYPE, apple_start, apple_end, latest=True)
+        exercise   = _agg_quantity(conn, "SUM", _EXERCISE_MIN_TYPE, apple_start, apple_end)
+        daylight   = _agg_quantity(conn, "SUM", _DAYLIGHT_TYPE, apple_start, apple_end)
 
         parts = []
         ts = None
 
-        if resting_hr_row:
-            ts = apple_ts(resting_hr_row[0]).astimezone(self._local_tz)
-            parts.append(f"resting HR {round(resting_hr_row[1])}bpm")
-        if hrv_row and hrv_row[0]:
-            parts.append(f"HRV {round(hrv_row[0])}ms")
-        if walking_hr_row and walking_hr_row[0]:
-            parts.append(f"walking HR avg {round(walking_hr_row[0])}bpm")
-        if vo2_row:
-            parts.append(f"VO2 max {vo2_row[0]:.1f} ml/kg/min")
-        if exercise_row and exercise_row[0]:
-            parts.append(f"{round(exercise_row[0])} exercise min")
-        if daylight_row and daylight_row[0]:
-            parts.append(f"{round(daylight_row[0])} min daylight")
+        if resting_hr:
+            ts = apple_ts(resting_hr[0]).astimezone(self._local_tz)
+            parts.append(f"resting HR {round(resting_hr[1])}bpm")
+        if hrv:
+            parts.append(f"HRV {round(hrv)}ms")
+        if walking_hr:
+            parts.append(f"walking HR avg {round(walking_hr)}bpm")
+        if vo2_max:
+            parts.append(f"VO2 max {vo2_max[1]:.1f} ml/kg/min")
+        if exercise:
+            parts.append(f"{round(exercise)} exercise min")
+        if daylight:
+            parts.append(f"{round(daylight)} min daylight")
 
         if not parts:
             return []

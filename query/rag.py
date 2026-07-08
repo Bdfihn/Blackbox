@@ -27,7 +27,7 @@ qdrant        = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
 ollama_client = ollama.Client(host=f"http://{OLLAMA_HOST}:{OLLAMA_PORT}")
 
 
-def _date_filter(date: str) -> Filter:
+def build_date_filter(date: str) -> Filter:
     return Filter(must=[FieldCondition(key="date", match=MatchValue(value=date))])
 
 
@@ -43,7 +43,7 @@ def search(question: str, top_k: int = TOP_K, date_filter: str | None = None) ->
     """
     vector = embed(question)
 
-    query_filter = _date_filter(date_filter) if date_filter else None
+    query_filter = build_date_filter(date_filter) if date_filter else None
 
     results = qdrant.search(
         collection_name=COLLECTION,

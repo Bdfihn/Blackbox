@@ -11,6 +11,10 @@ log = logging.getLogger(__name__)
 
 CHUNK_MINUTES = 5
 
+# aw-server rejects requests whose Host header isn't localhost (DNS-rebinding
+# protection); from inside the container we reach it via host.docker.internal.
+_AW_HEADERS = {"Host": "localhost:5600"}
+
 
 def _parse_ts(raw: str) -> datetime:
     return datetime.fromisoformat(raw.replace("Z", "+00:00"))
@@ -87,7 +91,7 @@ class ActivityWatchSource:
             f"{self._aw_base}/buckets/",
             timeout=10,
             allow_redirects=True,
-            headers={"Host": "localhost:5600"},
+            headers=_AW_HEADERS,
         )
         r.raise_for_status()
         return list(r.json())
@@ -119,7 +123,7 @@ class ActivityWatchSource:
             f"{self._aw_base}/buckets/{bucket_id}/events",
             params={"start": start.isoformat(), "end": end.isoformat(), "limit": 10000},
             timeout=30,
-            headers={"Host": "localhost:5600"},
+            headers=_AW_HEADERS,
         )
         r.raise_for_status()
         return r.json()

@@ -34,22 +34,20 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 # ── Config ────────────────────────────────────────────────────────────────────
-LOCAL_TZ       = zoneinfo.ZoneInfo(os.getenv("TIMEZONE", "America/New_York"))
-AW_BASE        = f"http://{os.getenv('ACTIVITYWATCH_HOST', 'host.docker.internal')}:{os.getenv('ACTIVITYWATCH_PORT', 5600)}/api/0"
-GIT_REPOS_ROOT        = os.getenv("GIT_REPOS_ROOT", "")
-CLAUDE_TRANSCRIPTS    = os.getenv("CLAUDE_TRANSCRIPTS", "")
-SELF_PHONE            = os.getenv("SELF_PHONE", "")
-QDRANT_HOST    = os.getenv("QDRANT_HOST", "localhost")
-QDRANT_PORT    = int(os.getenv("QDRANT_PORT", 6333))
-OLLAMA_HOST    = os.getenv("OLLAMA_HOST", "localhost")
-OLLAMA_PORT    = int(os.getenv("OLLAMA_PORT", 11434))
-DIARY_DIR      = Path(os.getenv("DIARY_DIR", "/app/diary"))
-COLLECTION     = "blackbox"
-EMBED_MODEL    = "nomic-embed-text"
-LLM_MODEL      = "gemma4:e4b"
-LLM_NUM_CTX    = 32768  # Ollama defaults to 4096 and silently truncates the front of the prompt
-
-DIARY_DIR.mkdir(parents=True, exist_ok=True)
+LOCAL_TZ           = zoneinfo.ZoneInfo(os.getenv("TIMEZONE", "America/New_York"))
+AW_BASE            = f"http://{os.getenv('ACTIVITYWATCH_HOST', 'host.docker.internal')}:{os.getenv('ACTIVITYWATCH_PORT', 5600)}/api/0"
+GIT_REPOS_ROOT     = os.getenv("GIT_REPOS_ROOT", "")
+CLAUDE_TRANSCRIPTS = os.getenv("CLAUDE_TRANSCRIPTS", "")
+SELF_PHONE         = os.getenv("SELF_PHONE", "")
+QDRANT_HOST        = os.getenv("QDRANT_HOST", "localhost")
+QDRANT_PORT        = int(os.getenv("QDRANT_PORT", 6333))
+OLLAMA_HOST        = os.getenv("OLLAMA_HOST", "localhost")
+OLLAMA_PORT        = int(os.getenv("OLLAMA_PORT", 11434))
+DIARY_DIR          = Path(os.getenv("DIARY_DIR", "/app/diary"))
+COLLECTION         = "blackbox"
+EMBED_MODEL        = "nomic-embed-text"
+LLM_MODEL          = "gemma4:e4b"
+LLM_NUM_CTX        = 32768  # Ollama defaults to 4096 and silently truncates the front of the prompt
 
 # ── Clients ───────────────────────────────────────────────────────────────────
 qdrant = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
@@ -188,6 +186,7 @@ TIMELINE END
 
 
 def write_diary(date: str, content: str):
+    DIARY_DIR.mkdir(parents=True, exist_ok=True)
     path = DIARY_DIR / f"{date}.md"
     path.write_text(content, encoding="utf-8")
     log.info(f"Diary written: {path}")
@@ -221,12 +220,12 @@ def run_etl(target_date: datetime | None = None):
         sources.append(ClaudeCodeSource(CLAUDE_TRANSCRIPTS, LOCAL_TZ, ollama_client, LLM_MODEL, LLM_NUM_CTX))
 
     try:
-        from iOSbackup import iOSbackup as _IOSBackup
+        from iOSbackup import iOSbackup as IOSBackup
         backup_info = check_backup()
         if backup_info:
             backuproot, udid = backup_info
             password = os.getenv("IPHONE_BACKUP_PASSWORD", "")
-            backup = _IOSBackup(udid=udid, cleartextpassword=password, backuproot=backuproot)
+            backup = IOSBackup(udid=udid, cleartextpassword=password, backuproot=backuproot)
             log.info(f"iPhone backup found: {udid} at {backuproot}")
             sources.append(IPhoneHealthSource(backup, LOCAL_TZ))
             sources.append(IPhoneSocialSource(backup, LOCAL_TZ, SELF_PHONE))

@@ -10,7 +10,7 @@ from pathlib import Path
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from qdrant_client import QdrantClient
-from rag import answer, _date_filter, QDRANT_HOST, QDRANT_PORT, COLLECTION
+from rag import answer, build_date_filter, QDRANT_HOST, QDRANT_PORT, COLLECTION
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -92,7 +92,7 @@ def get_timeline(date: str):
     if not _valid_date(date):
         return jsonify({"error": "Invalid date format"}), 400
 
-    points = _scroll_all(_date_filter(date), with_payload=True)
+    points = _scroll_all(build_date_filter(date), with_payload=True)
     chunks = [
         {
             "time": p.payload.get("window_start", "")[:16].replace("T", " "),
@@ -107,11 +107,11 @@ def get_timeline(date: str):
 
 @app.route("/api/diary/<date>", methods=["DELETE"])
 def delete_diary(date: str):
-    """Delete a diary entry and all associated vector + tracking data."""
+    """Delete a diary entry and its Qdrant points."""
     if not _valid_date(date):
         return jsonify({"error": "Invalid date format"}), 400
 
-    chunk_ids = [str(p.id) for p in _scroll_all(_date_filter(date), with_payload=False)]
+    chunk_ids = [str(p.id) for p in _scroll_all(build_date_filter(date), with_payload=False)]
 
     if chunk_ids:
         qdrant.delete(collection_name=COLLECTION, points_selector=chunk_ids)
