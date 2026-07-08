@@ -149,7 +149,17 @@ def generate_diary_entry(date: str, chunks: list[Chunk]) -> str:
 
     timeline = "\n".join(c.text for c in chunks)
 
-    instructions = """You are writing a personal daily diary entry from automatically logged activity data.
+    # Only mention sleep in the instructions when the timeline actually has a
+    # sleep chunk — gemma4:e4b fabricates a sleep opening if primed by the
+    # instructions alone, and ignores "if no sleep chunk" conditionals.
+    has_sleep = any(c.source == "iphone_health" and "Sleep:" in c.text for c in chunks)
+    opening_rule = (
+        "- Open the entry with the sleep chunk — lead with total sleep and mention the stage breakdown (Deep, REM, Core) only if the numbers are interesting (e.g., unusually low deep sleep)."
+        if has_sleep
+        else "- Open the entry with the first meaningful activity of the day."
+    )
+
+    instructions = f"""You are writing a personal daily diary entry from automatically logged activity data.
 
 Write in first person, past tense, in a natural and honest voice — like a real diary, not a report. Length should match the day: quiet days get 2 paragraphs, busy days get 4-5. Never pad or summarize vaguely just to hit a length target.
 
@@ -162,10 +172,9 @@ Rules:
 - For coding/work: describe what you were building or fixing at a high level. Do NOT reproduce commit messages verbatim. Name the project and what changed, not the git log.
 - For Claude Code sessions: describe what problem was being solved or what feature was being built, in plain language.
 - For health/steps: only mention if notable. Don't list hourly step counts.
-- For sleep: if a sleep chunk is present, use it to open the entry — lead with total sleep and mention the stage breakdown (Deep, REM, Core) only if the numbers are interesting (e.g., unusually low deep sleep).
 - For daily vitals (resting HR, HRV): mention briefly, especially if out of the ordinary. HRV is a proxy for recovery — low HRV after a hard workout or late night is worth noting.
 - For workouts: always mention. Include the type, duration, and calories if available.
-- If no sleep chunk, open with the first meaningful activity of the day.
+{opening_rule}
 - Names are better than phone numbers. If a contact name is available, use it.
 - Allocate paragraph space proportional to how much time was actually spent on each activity."""
 
