@@ -19,7 +19,8 @@ OLLAMA_HOST   = os.getenv("OLLAMA_HOST", "localhost")
 OLLAMA_PORT   = int(os.getenv("OLLAMA_PORT", 11434))
 COLLECTION    = "blackbox"
 EMBED_MODEL   = "nomic-embed-text"
-LLM_MODEL   = "gemma4:e4b"
+LLM_MODEL     = "gemma4:e4b"
+LLM_NUM_CTX   = 32768  # Ollama defaults to 4096 and silently truncates the front of the prompt
 TOP_K         = 10
 
 qdrant        = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
@@ -78,20 +79,22 @@ def answer(question: str, date_filter: str | None = None) -> dict:
         )
     context = "\n\n".join(context_parts)
 
-    prompt = f"""You are a personal life assistant with access to logged data about the user's daily activity.
-Answer the user's question using ONLY the context provided below. Be specific and cite timestamps when relevant.
-If the context doesn't contain enough information to answer fully, say so honestly.
+    instructions = """You are a personal life assistant with access to logged data about the user's daily activity.
+Answer the user's question using ONLY the context provided. Be specific and cite timestamps when relevant.
+If the context doesn't contain enough information to answer fully, say so honestly."""
 
-Context from activity logs:
+    user_content = f"""Context from activity logs:
 {context}
 
-User question: {question}
-
-Answer:"""
+User question: {question}"""
 
     response = ollama_client.chat(
         model=LLM_MODEL,
-        messages=[{"role": "user", "content": prompt}]
+        messages=[
+            {"role": "system", "content": instructions},
+            {"role": "user", "content": user_content},
+        ],
+        options={"num_ctx": LLM_NUM_CTX},
     )
 
     return {
