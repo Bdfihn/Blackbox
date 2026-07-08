@@ -206,6 +206,7 @@ class IPhoneHealthSource:
             window_start=window_start.isoformat(),
             text=text,
             apps=[], total_secs=int(total_s), source="iphone_health",
+            metadata={"kind": "sleep"},
         )]
 
     # ── Daily vitals ──────────────────────────────────────────────────────────
@@ -245,6 +246,7 @@ class IPhoneHealthSource:
             window_start=ts.isoformat(),
             text=f"[{ts.strftime('%Y-%m-%d %H:%M')}] Daily vitals: {', '.join(parts)}.",
             apps=[], total_secs=0, source="iphone_health",
+            metadata={"kind": "vitals"},
         )]
 
     # ── Workouts ──────────────────────────────────────────────────────────────
@@ -295,6 +297,7 @@ class IPhoneHealthSource:
                 window_start=ts.isoformat(),
                 text=text,
                 apps=[], total_secs=int(duration_secs or 0), source="iphone_health",
+                metadata={"kind": "workout"},
             ))
 
         return chunks

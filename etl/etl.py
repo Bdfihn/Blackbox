@@ -149,15 +149,21 @@ def generate_diary_entry(date: str, chunks: list[Chunk]) -> str:
 
     timeline = "\n".join(c.text for c in chunks)
 
-    # Only mention sleep in the instructions when the timeline actually has a
-    # sleep chunk — gemma4:e4b fabricates a sleep opening if primed by the
-    # instructions alone, and ignores "if no sleep chunk" conditionals.
-    has_sleep = any(c.source == "iphone_health" and "Sleep:" in c.text for c in chunks)
-    opening_rule = (
+    # Only include instructions about health data that is actually in the
+    # timeline — gemma4:e4b fabricates content it was primed for by the
+    # instructions alone, and ignores "if no X chunk" conditionals.
+    kinds = {c.metadata.get("kind") for c in chunks}
+    health_rules = []
+    if "vitals" in kinds:
+        health_rules.append("- For daily vitals (resting HR, HRV): mention briefly, especially if out of the ordinary. HRV is a proxy for recovery — low HRV after a hard workout or late night is worth noting.")
+    if "workout" in kinds:
+        health_rules.append("- For workouts: always mention. Include the type, duration, and calories if available.")
+    health_rules.append(
         "- Open the entry with the sleep chunk — lead with total sleep and mention the stage breakdown (Deep, REM, Core) only if the numbers are interesting (e.g., unusually low deep sleep)."
-        if has_sleep
+        if "sleep" in kinds
         else "- Open the entry with the first meaningful activity of the day."
     )
+    health_rules_text = "\n".join(health_rules)
 
     instructions = f"""You are writing a personal daily diary entry from automatically logged activity data.
 
@@ -172,9 +178,7 @@ Rules:
 - For coding/work: describe what you were building or fixing at a high level. Do NOT reproduce commit messages verbatim. Name the project and what changed, not the git log.
 - For Claude Code sessions: describe what problem was being solved or what feature was being built, in plain language.
 - For health/steps: only mention if notable. Don't list hourly step counts.
-- For daily vitals (resting HR, HRV): mention briefly, especially if out of the ordinary. HRV is a proxy for recovery — low HRV after a hard workout or late night is worth noting.
-- For workouts: always mention. Include the type, duration, and calories if available.
-{opening_rule}
+{health_rules_text}
 - Names are better than phone numbers. If a contact name is available, use it.
 - Allocate paragraph space proportional to how much time was actually spent on each activity."""
 

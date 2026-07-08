@@ -141,6 +141,24 @@ def test_vitals_include_daylight_exercise_minutes_and_walking_hr():
     assert "36 min daylight" in text
 
 
+def test_sleep_vitals_and_workout_chunks_carry_kind_metadata():
+    conn = _make_db()
+    _insert_category(conn, 1, 63, 4, start=_TS, end=_TS + 3600)  # deep sleep
+    _insert_quantity(conn, 2, 118, 68, start=_TS + 60)           # resting HR
+    conn.execute(
+        "INSERT INTO workout_activities VALUES (1, 37, ?, ?, 1800, 1)",
+        (_TS + 7200, _TS + 9000),
+    )
+
+    chunks = _get_chunks(conn)
+    sleep = next(c for c in chunks if "Sleep:" in c.text)
+    assert sleep.metadata["kind"] == "sleep"
+    vitals = next(c for c in chunks if "Daily vitals" in c.text)
+    assert vitals.metadata["kind"] == "vitals"
+    workout = next(c for c in chunks if "Running" in c.text)
+    assert workout.metadata["kind"] == "workout"
+
+
 def test_no_vitals_chunk_when_no_data():
     conn = _make_db()
     chunks = _get_chunks(conn)
