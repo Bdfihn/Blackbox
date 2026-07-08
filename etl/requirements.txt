@@ -1,5 +1,4 @@
-requests==2.31.0
+requests==2.34.2
 qdrant-client==1.9.1
 ollama==0.2.1
-pytest==7.4.3
 iOSbackup==0.9.925
