@@ -16,6 +16,16 @@ def floor_dt(ts: datetime, minutes: int) -> datetime:
     return ts.replace(minute=(ts.minute // minutes) * minutes, second=0, microsecond=0)
 
 
+def fmt_duration(secs: float) -> str:
+    """Format seconds as a compact duration, e.g. "1h 30m", "2h", "45m"."""
+    h, m = divmod(int(secs) // 60, 60)
+    if h and m:
+        return f"{h}h {m}m"
+    if h:
+        return f"{h}h"
+    return f"{m}m"
+
+
 @dataclass
 class Chunk:
     window_start: str  # ISO datetime string (LOCAL_TZ-aware)

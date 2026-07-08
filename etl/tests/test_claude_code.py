@@ -7,7 +7,6 @@ import pytest
 from sources.claude_code import (
     ClaudeCodeSource,
     _extract_messages,
-    _fmt_duration,
     _is_system_message,
     _trim_user_text,
 )
@@ -108,6 +107,22 @@ def test_extract_user_list_filters_request_interrupted():
     assert lines == []
 
 
+def test_extract_user_list_skips_system_tags():
+    records = [
+        _user_list([{"type": "text", "text": "<command-name>/clear</command-name>"}])
+    ]
+    lines = _extract_messages(records, _START, _END, LOCAL_TZ)
+    assert lines == []
+
+
+def test_extract_user_list_strips_appended_build_output():
+    records = [
+        _user_list([{"type": "text", "text": "the build failed\n#5 [internal] load build context\n#5 DONE 0.0s"}])
+    ]
+    lines = _extract_messages(records, _START, _END, LOCAL_TZ)
+    assert lines == ["User: the build failed"]
+
+
 def test_extract_skips_meta_records():
     record = {**_user_str("should be skipped"), "isMeta": True}
     lines = _extract_messages([record], _START, _END, LOCAL_TZ)
@@ -174,20 +189,6 @@ def test_extract_multiple_assistant_text_blocks():
 
 
 
-# --- _fmt_duration ---
-
-def test_fmt_duration_minutes_only():
-    assert _fmt_duration(600) == "10m"
-
-
-def test_fmt_duration_hours_only():
-    assert _fmt_duration(7200) == "2h"
-
-
-def test_fmt_duration_hours_and_minutes():
-    assert _fmt_duration(5400) == "1h 30m"
-
-
 # --- ClaudeCodeSource.get_chunks (integration-style, no LLM) ---
 
 def _make_source(tmp_path, monkeypatch):
@@ -219,6 +220,20 @@ def test_get_chunks_returns_chunk_for_valid_session(tmp_path, monkeypatch):
     chunks = src.get_chunks(_START, _END)
     assert len(chunks) == 1
     assert "MyProject" in chunks[0].text
+
+
+def test_get_chunks_derives_project_name_from_record_cwd(tmp_path, monkeypatch):
+    project = tmp_path / "D--Work-Repos-SomeProject"
+    project.mkdir()
+    _write_jsonl(project / "session.jsonl", [
+        {**_user_str("build the thing"), "cwd": "D:\\Work\\Repos\\SomeProject"},
+        _assistant(["Done, wrote foo.py"]),
+    ])
+    src, _ = _make_source(tmp_path, monkeypatch)
+    chunks = src.get_chunks(_START, _END)
+    assert len(chunks) == 1
+    assert "in SomeProject:" in chunks[0].text
+    assert "D--Work" not in chunks[0].text
 
 
 def test_summarize_sets_num_ctx_to_avoid_truncation(tmp_path, monkeypatch):

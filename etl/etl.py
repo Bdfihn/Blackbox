@@ -8,10 +8,9 @@ import os
 import hashlib
 import logging
 import zoneinfo
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
 
-import requests
 import ollama
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
@@ -39,6 +38,7 @@ LOCAL_TZ       = zoneinfo.ZoneInfo(os.getenv("TIMEZONE", "America/New_York"))
 AW_BASE        = f"http://{os.getenv('ACTIVITYWATCH_HOST', 'host.docker.internal')}:{os.getenv('ACTIVITYWATCH_PORT', 5600)}/api/0"
 GIT_REPOS_ROOT        = os.getenv("GIT_REPOS_ROOT", "")
 CLAUDE_TRANSCRIPTS    = os.getenv("CLAUDE_TRANSCRIPTS", "")
+SELF_PHONE            = os.getenv("SELF_PHONE", "")
 QDRANT_HOST    = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT    = int(os.getenv("QDRANT_PORT", 6333))
 OLLAMA_HOST    = os.getenv("OLLAMA_HOST", "localhost")
@@ -229,7 +229,7 @@ def run_etl(target_date: datetime | None = None):
             backup = _IOSBackup(udid=udid, cleartextpassword=password, backuproot=backuproot)
             log.info(f"iPhone backup found: {udid} at {backuproot}")
             sources.append(IPhoneHealthSource(backup, LOCAL_TZ))
-            sources.append(IPhoneSocialSource(backup, LOCAL_TZ))
+            sources.append(IPhoneSocialSource(backup, LOCAL_TZ, SELF_PHONE))
         else:
             log.info("No iPhone backup found — skipping iPhone data.")
     except Exception as e:

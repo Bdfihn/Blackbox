@@ -2,7 +2,7 @@ import logging
 import zoneinfo
 from datetime import datetime
 
-from .base import Chunk, floor_dt
+from .base import Chunk, floor_dt, fmt_duration
 from .iphone_backup import apple_ts, open_backup_db, to_apple_secs
 
 log = logging.getLogger(__name__)
@@ -63,14 +63,6 @@ _WORKOUT_NAMES = {
     80: "Cooldown",         82: "Swim Bike Run",     83: "Transition",
     84: "Underwater Diving", 3000: "Other",
 }
-
-
-def _fmt_duration(secs: float) -> str:
-    h = int(secs) // 3600
-    m = (int(secs) % 3600) // 60
-    if h:
-        return f"{h}h {m}min"
-    return f"{m}min"
 
 
 class IPhoneHealthSource:
@@ -167,17 +159,17 @@ class IPhoneHealthSource:
             total_s = sum(stage_secs.values())
             text = (
                 f"[{window_start.strftime('%Y-%m-%d %H:%M')}] "
-                f"Sleep: {_fmt_duration(total_s)} total."
+                f"Sleep: {fmt_duration(total_s)} total."
             )
         else:
             parts = []
-            if core_s:  parts.append(f"Core {_fmt_duration(core_s)}")
-            if deep_s:  parts.append(f"Deep {_fmt_duration(deep_s)}")
-            if rem_s:   parts.append(f"REM {_fmt_duration(rem_s)}")
-            if awake_s: parts.append(f"awake {_fmt_duration(awake_s)}")
+            if core_s:  parts.append(f"Core {fmt_duration(core_s)}")
+            if deep_s:  parts.append(f"Deep {fmt_duration(deep_s)}")
+            if rem_s:   parts.append(f"REM {fmt_duration(rem_s)}")
+            if awake_s: parts.append(f"awake {fmt_duration(awake_s)}")
             text = (
                 f"[{window_start.strftime('%Y-%m-%d %H:%M')}] "
-                f"Sleep: {_fmt_duration(total_s)} total — {', '.join(parts)}."
+                f"Sleep: {fmt_duration(total_s)} total — {', '.join(parts)}."
             )
 
         # Append avg respiratory rate if available for the same window
@@ -303,7 +295,7 @@ class IPhoneHealthSource:
         for rowid, activity_type, start_ts, end_ts, duration_secs in workouts:
             ts = apple_ts(start_ts).astimezone(self._local_tz)
             name = _WORKOUT_NAMES.get(activity_type, f"Workout (type {activity_type})")
-            dur = _fmt_duration(duration_secs or ((end_ts or start_ts) - start_ts))
+            dur = fmt_duration(duration_secs or ((end_ts or start_ts) - start_ts))
 
             w_stats = stats.get(rowid, {})
             parts = [f"{dur}"]

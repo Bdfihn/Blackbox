@@ -1,5 +1,4 @@
 import logging
-import os
 import re
 import sqlite3
 import zoneinfo
@@ -12,8 +11,6 @@ from .iphone_backup import apple_ts, open_backup_db, to_apple_secs
 log = logging.getLogger(__name__)
 
 BUCKET_MINUTES = 15
-
-_SELF_PHONE = re.sub(r"\D", "", os.getenv("SELF_PHONE", ""))[-10:]
 
 _BUNDLE_NAMES = {
     "com.apple.MobileSMS": "Messages",
@@ -103,9 +100,10 @@ def parse_interactions(
 
 
 class IPhoneSocialSource:
-    def __init__(self, backup, local_tz: zoneinfo.ZoneInfo):
+    def __init__(self, backup, local_tz: zoneinfo.ZoneInfo, self_phone: str = ""):
         self._backup = backup
         self._local_tz = local_tz
+        self._self_phone = re.sub(r"\D", "", self_phone)[-10:]
 
     def get_chunks(self, start: datetime, end: datetime) -> list[Chunk]:
         records = parse_interactions(self._backup, start, end, self._local_tz)
@@ -137,7 +135,7 @@ class IPhoneSocialSource:
                     if not name or not name.strip():
                         continue
                     digits = re.sub(r"\D", "", name)[-10:]
-                    if digits and _SELF_PHONE and digits == _SELF_PHONE:
+                    if digits and digits == self._self_phone:
                         continue
                     names.add(name.strip())
 

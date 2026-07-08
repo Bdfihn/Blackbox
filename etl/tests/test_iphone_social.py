@@ -116,6 +116,45 @@ def test_get_chunks_groups_into_15min_buckets():
     assert set(chunk.metadata["contacts"]) == {"John Smith", "Jane Doe"}
 
 
+def test_self_phone_filtered_from_contacts(monkeypatch):
+    records = [{
+        "timestamp": _TS_UTC.astimezone(LOCAL_TZ),
+        "bundle_id": "com.apple.MobileSMS",
+        "direction": 0,
+        "sender_name": "(609) 752-4086",
+        "recipient_name": "Jane Doe",
+    }]
+    source = IPhoneSocialSource(None, LOCAL_TZ, self_phone="+16097524086")
+    monkeypatch.setattr("sources.iphone_social.parse_interactions", lambda *a, **kw: records)
+
+    chunks = source.get_chunks(
+        datetime(2024, 1, 15, 4, 0, tzinfo=LOCAL_TZ),
+        datetime(2024, 1, 16, 4, 0, tzinfo=LOCAL_TZ),
+    )
+
+    assert len(chunks) == 1
+    assert chunks[0].metadata["contacts"] == ["Jane Doe"]
+
+
+def test_empty_self_phone_filters_nothing(monkeypatch):
+    records = [{
+        "timestamp": _TS_UTC.astimezone(LOCAL_TZ),
+        "bundle_id": "com.apple.MobileSMS",
+        "direction": 0,
+        "sender_name": "John Smith",
+        "recipient_name": "Jane Doe",
+    }]
+    source = IPhoneSocialSource(None, LOCAL_TZ)
+    monkeypatch.setattr("sources.iphone_social.parse_interactions", lambda *a, **kw: records)
+
+    chunks = source.get_chunks(
+        datetime(2024, 1, 15, 4, 0, tzinfo=LOCAL_TZ),
+        datetime(2024, 1, 16, 4, 0, tzinfo=LOCAL_TZ),
+    )
+
+    assert set(chunks[0].metadata["contacts"]) == {"John Smith", "Jane Doe"}
+
+
 def test_parse_interactions_handles_missing_junction_table():
     conn = sqlite3.connect(":memory:")
     conn.execute("CREATE TABLE ZCONTACTS (Z_PK INTEGER PRIMARY KEY, ZDISPLAYNAME TEXT)")

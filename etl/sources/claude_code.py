@@ -5,7 +5,7 @@ import zoneinfo
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .base import Chunk
+from .base import Chunk, fmt_duration
 
 log = logging.getLogger(__name__)
 
@@ -57,6 +57,14 @@ def _trim_user_text(text: str) -> str:
     return text[:_MAX_USER_CHARS]
 
 
+def _clean_user_text(text: str) -> str:
+    """Return the diary-worthy portion of a user message, or "" to skip it."""
+    text = text.strip()
+    if not text or text.startswith("[Request interrupted") or _is_system_message(text):
+        return ""
+    return _trim_user_text(text)
+
+
 def _parse_ts(raw: str) -> datetime | None:
     try:
         return datetime.fromisoformat(raw.replace("Z", "+00:00"))
@@ -84,18 +92,16 @@ def _extract_messages(
                 continue
             content = r.get("message", {}).get("content", "")
             if isinstance(content, str):
-                text = content.strip()
-                if text and not _is_system_message(text):
-                    text = _trim_user_text(text)
-                    if text:
-                        lines.append(f"User: {text}")
+                text = _clean_user_text(content)
+                if text:
+                    lines.append(f"User: {text}")
             elif isinstance(content, list):
                 for block in content:
                     if not isinstance(block, dict) or block.get("type") != "text":
                         continue
-                    text = block.get("text", "").strip()
-                    if text and not text.startswith("[Request interrupted"):
-                        lines.append(f"User: {text[:_MAX_USER_CHARS]}")
+                    text = _clean_user_text(block.get("text", ""))
+                    if text:
+                        lines.append(f"User: {text}")
         elif rtype == "assistant":
             for block in r.get("message", {}).get("content", []):
                 if isinstance(block, dict) and block.get("type") == "text":
@@ -139,10 +145,10 @@ class ClaudeCodeSource:
         # strictly contained inside a larger sibling session — those are subagents
         # that were stored at the top level rather than in a subagents/ directory.
         def is_contained(path: Path, s: datetime, e: datetime) -> bool:
-            for other, os, oe in file_ranges:
+            for other, other_s, other_e in file_ranges:
                 if other.parent != path.parent or other == path:
                     continue
-                if os <= s and oe >= e and (os, oe) != (s, e):
+                if other_s <= s and other_e >= e and (other_s, other_e) != (s, e):
                     return True
             return False
 
@@ -228,9 +234,9 @@ class ClaudeCodeSource:
         content_for_llm = "\n\n".join(lines)
 
         duration_secs = (session_end - session_start).total_seconds()
-        duration_str = _fmt_duration(duration_secs)
+        duration_str = fmt_duration(duration_secs)
 
-        project_name = path.parent.name.replace("C--Users-Bdfihn-Code-", "").replace("C--Users-Bdfihn-", "")
+        project_name = _project_name(records, path)
 
         summary = self._summarize(content_for_llm)
 
@@ -260,11 +266,11 @@ class ClaudeCodeSource:
         return response["message"]["content"].strip()
 
 
-def _fmt_duration(secs: float) -> str:
-    total = int(secs)
-    h, m = divmod(total // 60, 60)
-    if h and m:
-        return f"{h}h {m}m"
-    if h:
-        return f"{h}h"
-    return f"{m}m"
+def _project_name(records: list[dict], path: Path) -> str:
+    """Prefer the basename of the session's recorded cwd — the transcript
+    directory name is the original path mangled into dashes (C--Users-...)."""
+    for r in records:
+        cwd = r.get("cwd")
+        if cwd:
+            return cwd.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+    return path.parent.name
