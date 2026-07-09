@@ -69,3 +69,30 @@ def test_sleep_with_zero_total_is_skipped(tmp_path):
         "sleep": {"start": "2026-07-08T01:14:00-04:00"},
     })
     assert _get_chunks(export_dir) == []
+
+
+def test_vitals_chunk_matches_backup_format(tmp_path):
+    export_dir = _write_export(tmp_path, {
+        "date": "2026-07-08",
+        "vitals": {"time": "2026-07-09T01:00:00-04:00", "resting_hr": 71, "hrv_ms": 41,
+                   "walking_hr_avg": 96, "vo2_max": 42.13, "daylight_min": 16, "exercise_min": 42},
+    })
+    chunks = _get_chunks(export_dir)
+    assert len(chunks) == 1
+    c = chunks[0]
+    assert c.text == ("[2026-07-09 01:00] Daily vitals: resting HR 71bpm, HRV 41ms, "
+                      "walking HR avg 96bpm, VO2 max 42.1 ml/kg/min, 42 exercise min, "
+                      "16 min daylight.")
+    assert c.metadata["kind"] == "vitals"
+    assert c.total_secs == 0
+
+
+def test_vitals_without_time_anchors_at_window_start(tmp_path):
+    export_dir = _write_export(tmp_path, {"date": "2026-07-08", "vitals": {"resting_hr": 71}})
+    chunks = _get_chunks(export_dir)
+    assert chunks[0].text == "[2026-07-08 04:00] Daily vitals: resting HR 71bpm."
+
+
+def test_empty_vitals_section_emits_nothing(tmp_path):
+    export_dir = _write_export(tmp_path, {"date": "2026-07-08", "vitals": {}})
+    assert _get_chunks(export_dir) == []

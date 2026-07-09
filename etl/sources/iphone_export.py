@@ -40,6 +40,8 @@ class IPhoneExportSource:
         chunks = []
         if "sleep" in data:
             chunks.extend(self._sleep_chunks(data["sleep"]))
+        if "vitals" in data:
+            chunks.extend(self._vitals_chunks(data["vitals"], start))
         log.info(f"  iphone_export: {len(chunks)} chunks")
         return chunks
 
@@ -73,4 +75,29 @@ class IPhoneExportSource:
             text=text,
             apps=[], total_secs=int(total_s), source="iphone_export",
             metadata={"kind": "sleep"},
+        )]
+
+    def _vitals_chunks(self, vitals: dict, window_start: datetime) -> list[Chunk]:
+        parts = []
+        if vitals.get("resting_hr"):
+            parts.append(f"resting HR {round(vitals['resting_hr'])}bpm")
+        if vitals.get("hrv_ms"):
+            parts.append(f"HRV {round(vitals['hrv_ms'])}ms")
+        if vitals.get("walking_hr_avg"):
+            parts.append(f"walking HR avg {round(vitals['walking_hr_avg'])}bpm")
+        if vitals.get("vo2_max"):
+            parts.append(f"VO2 max {vitals['vo2_max']:.1f} ml/kg/min")
+        if vitals.get("exercise_min"):
+            parts.append(f"{round(vitals['exercise_min'])} exercise min")
+        if vitals.get("daylight_min"):
+            parts.append(f"{round(vitals['daylight_min'])} min daylight")
+        if not parts:
+            return []
+
+        ts = self._ts(vitals["time"]) if vitals.get("time") else window_start
+        return [Chunk(
+            window_start=ts.isoformat(),
+            text=f"[{ts.strftime('%Y-%m-%d %H:%M')}] Daily vitals: {', '.join(parts)}.",
+            apps=[], total_secs=0, source="iphone_export",
+            metadata={"kind": "vitals"},
         )]
