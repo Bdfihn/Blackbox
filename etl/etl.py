@@ -20,6 +20,7 @@ from sources import (
     ClaudeCodeSource,
     DataSource,
     GitSource,
+    IPhoneExportSource,
     IPhoneHealthSource,
     IPhoneSocialSource,
     find_backup,
@@ -38,6 +39,7 @@ LOCAL_TZ           = zoneinfo.ZoneInfo(os.getenv("TIMEZONE", "America/New_York")
 AW_BASE            = f"http://{os.getenv('ACTIVITYWATCH_HOST', 'host.docker.internal')}:{os.getenv('ACTIVITYWATCH_PORT', 5600)}/api/0"
 GIT_REPOS_ROOT     = os.getenv("GIT_REPOS_ROOT", "")
 CLAUDE_TRANSCRIPTS = os.getenv("CLAUDE_TRANSCRIPTS", "")
+IPHONE_EXPORT_PATH = os.getenv("IPHONE_EXPORT_PATH", "")
 SELF_PHONE         = os.getenv("SELF_PHONE", "")
 QDRANT_HOST        = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT        = int(os.getenv("QDRANT_PORT", 6333))
@@ -231,6 +233,8 @@ def run_etl(target_date: datetime | None = None):
         sources.append(GitSource(GIT_REPOS_ROOT, LOCAL_TZ))
     if CLAUDE_TRANSCRIPTS:
         sources.append(ClaudeCodeSource(CLAUDE_TRANSCRIPTS, LOCAL_TZ, ollama_client, LLM_MODEL, LLM_NUM_CTX))
+    if IPHONE_EXPORT_PATH:
+        sources.append(IPhoneExportSource(IPHONE_EXPORT_PATH, LOCAL_TZ))
 
     try:
         from iOSbackup import iOSbackup as IOSBackup
