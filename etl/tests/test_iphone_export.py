@@ -96,3 +96,44 @@ def test_vitals_without_time_anchors_at_window_start(tmp_path):
 def test_empty_vitals_section_emits_nothing(tmp_path):
     export_dir = _write_export(tmp_path, {"date": "2026-07-08", "vitals": {}})
     assert _get_chunks(export_dir) == []
+
+
+def test_activity_chunks_match_backup_format(tmp_path):
+    export_dir = _write_export(tmp_path, {
+        "date": "2026-07-08",
+        "activity": [
+            {"hour": "2026-07-08T14:00:00-04:00", "steps": 147, "avg_hr": 76, "avg_mets": 3.04},
+            {"hour": "2026-07-08T15:00:00-04:00", "avg_hr": 70},
+        ],
+    })
+    chunks = _get_chunks(export_dir)
+    assert len(chunks) == 2
+    assert chunks[0].text == "[2026-07-08 14:00] Activity: 147 steps, avg HR 76bpm, avg effort 3.0 METs."
+    assert chunks[0].total_secs == 3600
+    assert chunks[0].metadata == {}
+    assert chunks[1].text == "[2026-07-08 15:00] Activity: avg HR 70bpm."
+
+
+def test_workout_chunk_matches_backup_format(tmp_path):
+    export_dir = _write_export(tmp_path, {
+        "date": "2026-07-08",
+        "workouts": [{"start": "2026-07-08T18:02:00-04:00", "type": "Running",
+                      "duration_min": 30, "avg_hr": 150, "kcal": 320.4, "distance_km": 4.8}],
+    })
+    chunks = _get_chunks(export_dir)
+    assert len(chunks) == 1
+    c = chunks[0]
+    assert c.text == "[2026-07-08 18:02] Running: 30m, avg HR 150bpm, 320 kcal, 4.80km."
+    assert c.metadata["kind"] == "workout"
+    assert c.total_secs == 1800
+
+
+def test_chunks_sorted_by_window_start(tmp_path):
+    export_dir = _write_export(tmp_path, {
+        "date": "2026-07-08",
+        "sleep": {"start": "2026-07-08T01:14:00-04:00", "core_min": 135},
+        "activity": [{"hour": "2026-07-08T14:00:00-04:00", "steps": 10}],
+        "workouts": [{"start": "2026-07-08T08:00:00-04:00", "type": "Walking", "duration_min": 20}],
+    })
+    chunks = _get_chunks(export_dir)
+    assert [c.window_start for c in chunks] == sorted(c.window_start for c in chunks)

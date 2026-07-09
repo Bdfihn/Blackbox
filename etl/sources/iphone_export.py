@@ -42,6 +42,11 @@ class IPhoneExportSource:
             chunks.extend(self._sleep_chunks(data["sleep"]))
         if "vitals" in data:
             chunks.extend(self._vitals_chunks(data["vitals"], start))
+        if "activity" in data:
+            chunks.extend(self._activity_chunks(data["activity"]))
+        if "workouts" in data:
+            chunks.extend(self._workout_chunks(data["workouts"]))
+        chunks.sort(key=lambda c: c.window_start)
         log.info(f"  iphone_export: {len(chunks)} chunks")
         return chunks
 
@@ -101,3 +106,43 @@ class IPhoneExportSource:
             apps=[], total_secs=0, source="iphone_export",
             metadata={"kind": "vitals"},
         )]
+
+    def _activity_chunks(self, entries: list) -> list[Chunk]:
+        chunks = []
+        for entry in entries:
+            ts = self._ts(entry["hour"])
+            parts = []
+            if entry.get("steps"):
+                parts.append(f"{int(entry['steps'])} steps")
+            if entry.get("avg_hr"):
+                parts.append(f"avg HR {round(entry['avg_hr'])}bpm")
+            if entry.get("avg_mets"):
+                parts.append(f"avg effort {entry['avg_mets']:.1f} METs")
+            if not parts:
+                continue
+            chunks.append(Chunk(
+                window_start=ts.isoformat(),
+                text=f"[{ts.strftime('%Y-%m-%d %H:%M')}] Activity: {', '.join(parts)}.",
+                apps=[], total_secs=3600, source="iphone_export",
+            ))
+        return chunks
+
+    def _workout_chunks(self, entries: list) -> list[Chunk]:
+        chunks = []
+        for entry in entries:
+            ts = self._ts(entry["start"])
+            duration_s = entry.get("duration_min", 0) * 60
+            parts = [fmt_duration(duration_s)]
+            if entry.get("avg_hr"):
+                parts.append(f"avg HR {round(entry['avg_hr'])}bpm")
+            if entry.get("kcal"):
+                parts.append(f"{round(entry['kcal'])} kcal")
+            if entry.get("distance_km"):
+                parts.append(f"{entry['distance_km']:.2f}km")
+            chunks.append(Chunk(
+                window_start=ts.isoformat(),
+                text=f"[{ts.strftime('%Y-%m-%d %H:%M')}] {entry['type']}: {', '.join(parts)}.",
+                apps=[], total_secs=int(duration_s), source="iphone_export",
+                metadata={"kind": "workout"},
+            ))
+        return chunks
