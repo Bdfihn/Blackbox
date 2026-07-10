@@ -76,10 +76,13 @@ class IPhoneExportSource:
         stage_secs: dict[str, float] = {}
         earliest = None
         for line in raw.strip().splitlines():
+            # Comma-separated per the contract, but tolerate spaces — the
+            # separator is hand-typed between variable pills in Shortcuts.
+            parts = line.strip().split(",") if "," in line else line.strip().split(None, 2)
             try:
-                start_s, end_s, stage = line.strip().split(",")
-                start = datetime.fromisoformat(start_s)
-                end = datetime.fromisoformat(end_s)
+                start_s, end_s, stage = parts
+                start = datetime.fromisoformat(start_s.strip())
+                end = datetime.fromisoformat(end_s.strip())
             except ValueError:
                 log.warning(f"  iphone_export: bad sleep sample line: {line!r}")
                 continue

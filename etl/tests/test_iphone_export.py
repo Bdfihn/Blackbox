@@ -106,6 +106,17 @@ def test_sleep_samples_with_no_valid_lines_emits_nothing(tmp_path):
     assert _get_chunks(export_dir) == []
 
 
+def test_sleep_samples_accepts_space_separated_lines(tmp_path):
+    lines = "\n".join([
+        "2026-07-08T01:14:00-04:00 2026-07-08T02:14:00-04:00 Core",
+        "2026-07-08T02:14:00-04:00 2026-07-08T03:14:00-04:00 In Bed",
+    ])
+    export_dir = _write_export(tmp_path, {"date": "2026-07-08", "sleep_samples": lines})
+    chunks = _get_chunks(export_dir)
+    assert len(chunks) == 1
+    assert chunks[0].text == "[2026-07-08 01:14] Sleep: 1h total — Core 1h."
+
+
 def test_sleep_samples_accepts_json_array_of_lines(tmp_path):
     export_dir = _write_export(tmp_path, {
         "date": "2026-07-08",
