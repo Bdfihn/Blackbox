@@ -157,6 +157,63 @@ def test_sleep_accepts_json_array_of_lines(tmp_path):
     assert chunks[0].text == "[2026-07-08 01:14] Sleep: 1h 30m total — Core 1h, Deep 30m."
 
 
+def test_step_lines_bucket_by_hour_into_activity_chunks(tmp_path):
+    lines = "\n".join([
+        "Jul 9, 2026 at 1:13 AMJul 9, 2026 at 2:01 AM184",
+        "Jul 9, 2026 at 3:00 AMJul 9, 2026 at 3:00 AM0",
+        "Jul 9, 2026 at 8:34 AMJul 9, 2026 at 9:02 AM89",
+        "Jul 9, 2026 at 8:07 PMJul 9, 2026 at 9:06 PM3235",
+    ])
+    export_dir = _write_export(tmp_path, {"date": "2026-07-09", "step": lines}, name="2026-07-09.json")
+    source = IPhoneExportSource(str(tmp_path), LOCAL_TZ)
+    chunks = source.get_chunks(datetime(2026, 7, 9, 4, 0, tzinfo=LOCAL_TZ),
+                               datetime(2026, 7, 10, 4, 0, tzinfo=LOCAL_TZ))
+    texts = [c.text for c in chunks]
+    assert "[2026-07-09 01:00] Activity: 184 steps." in texts
+    assert "[2026-07-09 08:00] Activity: 89 steps." in texts
+    assert "[2026-07-09 20:00] Activity: 3235 steps." in texts
+    assert len(chunks) == 3  # the zero-step filler line emits nothing
+
+
+def test_resting_hr_and_hrv_lines_build_vitals_chunk(tmp_path):
+    payload = {
+        "date": "2026-07-09",
+        "resting_hr": "Jul 9, 2026 at 12:03 AMJul 9, 2026 at 6:24 PM68",
+        "hrv": "\n".join([
+            "Jul 9, 2026 at 1:27 AMJul 9, 2026 at 1:28 AM33.5",
+            "Jul 9, 2026 at 5:17 AMJul 9, 2026 at 5:18 AM115.5",
+            "Jul 9, 2026 at 9:21 AMJul 9, 2026 at 9:22 AM19.0",
+        ]),
+    }
+    export_dir = _write_export(tmp_path, payload, name="2026-07-09.json")
+    source = IPhoneExportSource(str(tmp_path), LOCAL_TZ)
+    chunks = source.get_chunks(datetime(2026, 7, 9, 4, 0, tzinfo=LOCAL_TZ),
+                               datetime(2026, 7, 10, 4, 0, tzinfo=LOCAL_TZ))
+    assert len(chunks) == 1
+    c = chunks[0]
+    assert c.text == "[2026-07-09 00:03] Daily vitals: resting HR 68bpm, HRV 56ms."
+    assert c.metadata["kind"] == "vitals"
+
+
+def test_hrv_alone_builds_vitals_chunk(tmp_path):
+    payload = {"date": "2026-07-09", "hrv": "Jul 9, 2026 at 1:27 AMJul 9, 2026 at 1:28 AM40.2"}
+    export_dir = _write_export(tmp_path, payload, name="2026-07-09.json")
+    source = IPhoneExportSource(str(tmp_path), LOCAL_TZ)
+    chunks = source.get_chunks(datetime(2026, 7, 9, 4, 0, tzinfo=LOCAL_TZ),
+                               datetime(2026, 7, 10, 4, 0, tzinfo=LOCAL_TZ))
+    assert len(chunks) == 1
+    assert chunks[0].text == "[2026-07-09 04:00] Daily vitals: HRV 40ms."
+
+
+def test_hr_field_is_ignored(tmp_path):
+    payload = {"date": "2026-07-09", "hr": "Jul 9, 2026 at 12:03 AMJul 9, 2026 at 12:57 AM872"}
+    export_dir = _write_export(tmp_path, payload, name="2026-07-09.json")
+    source = IPhoneExportSource(str(tmp_path), LOCAL_TZ)
+    chunks = source.get_chunks(datetime(2026, 7, 9, 4, 0, tzinfo=LOCAL_TZ),
+                               datetime(2026, 7, 10, 4, 0, tzinfo=LOCAL_TZ))
+    assert chunks == []
+
+
 def test_vitals_chunk_matches_backup_format(tmp_path):
     export_dir = _write_export(tmp_path, {
         "date": "2026-07-08",

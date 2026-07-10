@@ -51,8 +51,12 @@ class IPhoneExportSource:
             chunks.extend(self._sleep_samples_chunks(sleep))
         if "vitals" in data:
             chunks.extend(self._vitals_chunks(data["vitals"], start))
+        elif "resting_hr" in data or "hrv" in data:
+            chunks.extend(self._vitals_from_lines(data.get("resting_hr"), data.get("hrv"), start))
         if "activity" in data:
             chunks.extend(self._activity_chunks(data["activity"]))
+        elif "step" in data or "steps" in data:
+            chunks.extend(self._activity_from_lines(data.get("step", data.get("steps"))))
         if "workouts" in data:
             chunks.extend(self._workout_chunks(data["workouts"]))
         chunks.sort(key=lambda c: c.window_start)
@@ -150,6 +154,49 @@ class IPhoneExportSource:
             apps=[], total_secs=int(total_s), source="iphone_export",
             metadata={"kind": "sleep"},
         )]
+
+    def _quantity_lines(self, raw) -> list[tuple[datetime, datetime, float]]:
+        """Parse sample lines whose third part is a number instead of a stage."""
+        if raw is None:
+            return []
+        if isinstance(raw, list):
+            raw = "\n".join(str(item) for item in raw)
+        values = []
+        for line in raw.strip().splitlines():
+            parsed = self._parse_sample_line(line)
+            if parsed is None:
+                log.warning(f"  iphone_export: bad quantity line: {line!r}")
+                continue
+            start, end, value_s = parsed
+            try:
+                values.append((start, end, float(value_s)))
+            except ValueError:
+                log.warning(f"  iphone_export: non-numeric quantity: {value_s!r}")
+        return values
+
+    def _activity_from_lines(self, raw) -> list[Chunk]:
+        """Sum hourly-grouped step lines into the contract's activity entries."""
+        hourly: dict[datetime, float] = {}
+        for start, _end, value in self._quantity_lines(raw):
+            hour = start.astimezone(self._local_tz).replace(minute=0, second=0, microsecond=0)
+            hourly[hour] = hourly.get(hour, 0) + value
+        entries = [
+            {"hour": hour.isoformat(), "steps": int(total)}
+            for hour, total in sorted(hourly.items()) if total
+        ]
+        return self._activity_chunks(entries)
+
+    def _vitals_from_lines(self, resting_raw, hrv_raw, window_start: datetime) -> list[Chunk]:
+        """Build the contract's vitals section from resting HR and HRV sample lines."""
+        vitals = {}
+        resting = self._quantity_lines(resting_raw)
+        if resting:
+            vitals["resting_hr"] = resting[-1][2]
+            vitals["time"] = resting[-1][0].astimezone(self._local_tz).isoformat()
+        hrv = [v for _s, _e, v in self._quantity_lines(hrv_raw)]
+        if hrv:
+            vitals["hrv_ms"] = sum(hrv) / len(hrv)
+        return self._vitals_chunks(vitals, window_start)
 
     def _vitals_chunks(self, vitals: dict, window_start: datetime) -> list[Chunk]:
         parts = []
