@@ -31,44 +31,11 @@ def test_malformed_json_returns_no_chunks(tmp_path):
 def test_date_field_mismatch_trusts_filename(tmp_path, caplog):
     export_dir = _write_export(tmp_path, {
         "date": "2026-07-01",
-        "sleep": {"start": "2026-07-08T01:14:00-04:00", "core_min": 135},
+        "sleep": "2026-07-08T01:14:00-04:00,2026-07-08T03:29:00-04:00,Core",
     })
     chunks = _get_chunks(export_dir)
     assert len(chunks) == 1
     assert "trusting filename" in caplog.text
-
-
-def test_sleep_chunk_matches_backup_format(tmp_path):
-    export_dir = _write_export(tmp_path, {
-        "date": "2026-07-08",
-        "sleep": {"start": "2026-07-08T01:14:00-04:00", "core_min": 135, "deep_min": 41,
-                  "rem_min": 29, "awake_min": 176, "resp_rate_avg": 17.1},
-    })
-    chunks = _get_chunks(export_dir)
-    assert len(chunks) == 1
-    c = chunks[0]
-    assert c.text == ("[2026-07-08 01:14] Sleep: 3h 25m total — Core 2h 15m, Deep 41m, "
-                      "REM 29m, awake 2h 56m. Avg respiratory rate: 17.1 breaths/min.")
-    assert c.metadata["kind"] == "sleep"
-    assert c.source == "iphone_export"
-    assert c.total_secs == (135 + 41 + 29) * 60
-
-
-def test_sleep_without_optional_fields(tmp_path):
-    export_dir = _write_export(tmp_path, {
-        "date": "2026-07-08",
-        "sleep": {"start": "2026-07-08T01:14:00-04:00", "core_min": 380},
-    })
-    chunks = _get_chunks(export_dir)
-    assert chunks[0].text == "[2026-07-08 01:14] Sleep: 6h 20m total — Core 6h 20m."
-
-
-def test_sleep_with_zero_total_is_skipped(tmp_path):
-    export_dir = _write_export(tmp_path, {
-        "date": "2026-07-08",
-        "sleep": {"start": "2026-07-08T01:14:00-04:00"},
-    })
-    assert _get_chunks(export_dir) == []
 
 
 def test_sleep_lines_aggregate_into_sleep_chunk(tmp_path):
@@ -85,6 +52,7 @@ def test_sleep_lines_aggregate_into_sleep_chunk(tmp_path):
     assert c.text == ("[2026-07-08 01:14] Sleep: 3h 25m total — Core 2h 15m, Deep 41m, "
                       "REM 29m, awake 2h 56m.")
     assert c.metadata["kind"] == "sleep"
+    assert c.source == "iphone_export"
     assert c.total_secs == (135 + 41 + 29) * 60
 
 
@@ -134,14 +102,6 @@ def test_sleep_locale_lines_with_narrow_no_break_space(tmp_path):
     chunks = _get_chunks(export_dir)
     assert len(chunks) == 1
     assert chunks[0].text == "[2026-07-09 02:41] Sleep: 1h total — Core 1h."
-
-
-def test_legacy_sleep_samples_key_still_parses(tmp_path):
-    lines = "2026-07-08T01:14:00-04:00,2026-07-08T02:14:00-04:00,Core"
-    export_dir = _write_export(tmp_path, {"date": "2026-07-08", "sleep_samples": lines})
-    chunks = _get_chunks(export_dir)
-    assert len(chunks) == 1
-    assert chunks[0].metadata["kind"] == "sleep"
 
 
 def test_sleep_accepts_json_array_of_lines(tmp_path):
@@ -257,26 +217,13 @@ def test_activity_chunks_match_backup_format(tmp_path):
     assert chunks[1].text == "[2026-07-08 15:00] Activity: avg HR 70bpm."
 
 
-def test_workout_chunk_matches_backup_format(tmp_path):
-    export_dir = _write_export(tmp_path, {
-        "date": "2026-07-08",
-        "workouts": [{"start": "2026-07-08T18:02:00-04:00", "type": "Running",
-                      "duration_min": 30, "avg_hr": 150, "kcal": 320.4, "distance_km": 4.8}],
-    })
-    chunks = _get_chunks(export_dir)
-    assert len(chunks) == 1
-    c = chunks[0]
-    assert c.text == "[2026-07-08 18:02] Running: 30m, avg HR 150bpm, 320 kcal, 4.80km."
-    assert c.metadata["kind"] == "workout"
-    assert c.total_secs == 1800
-
-
 def test_chunks_sorted_by_window_start(tmp_path):
     export_dir = _write_export(tmp_path, {
         "date": "2026-07-08",
-        "sleep": {"start": "2026-07-08T01:14:00-04:00", "core_min": 135},
-        "activity": [{"hour": "2026-07-08T14:00:00-04:00", "steps": 10}],
-        "workouts": [{"start": "2026-07-08T08:00:00-04:00", "type": "Walking", "duration_min": 20}],
+        "sleep": "2026-07-08T05:14:00-04:00,2026-07-08T07:29:00-04:00,Core",
+        "step": "2026-07-08T14:00:00-04:00,2026-07-08T14:30:00-04:00,312",
+        "hrv": "2026-07-08T09:00:00-04:00,2026-07-08T09:01:00-04:00,44.0",
     })
     chunks = _get_chunks(export_dir)
+    assert len(chunks) == 3
     assert [c.window_start for c in chunks] == sorted(c.window_start for c in chunks)

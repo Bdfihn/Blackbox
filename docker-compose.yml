@@ -22,8 +22,6 @@ services:
         condition: service_healthy
     volumes:
       - ./diary:/app/diary
-      - "C:/Users/Bdfihn/AppData/Roaming/Apple Computer/MobileSync/Backup:/app/iphone_backup:ro"
-      - "C:/Users/Bdfihn/Apple/MobileSync/Backup:/app/iphone_backup2:ro"
       - "C:/Users/Bdfihn/Code:/app/git_repos:ro"
       - "C:/Users/Bdfihn/.claude/projects:/app/claude_transcripts:ro"
       - ./health_export:/app/iphone_export:ro
@@ -36,13 +34,9 @@ services:
       - ACTIVITYWATCH_PORT=5600
       - TIMEZONE=America/Chicago
       - TZ=America/Chicago
-      - IPHONE_BACKUP_PATH=/app/iphone_backup
-      - IPHONE_BACKUP_PATH2=/app/iphone_backup2
       - IPHONE_EXPORT_PATH=/app/iphone_export
-      - IPHONE_BACKUP_PASSWORD=${IPHONE_BACKUP_PASSWORD:-}
       - GIT_REPOS_ROOT=/app/git_repos
       - CLAUDE_TRANSCRIPTS=/app/claude_transcripts
-      - SELF_PHONE=${SELF_PHONE:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

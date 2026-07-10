@@ -1,8 +1,8 @@
 """Health data from the nightly iPhone Shortcuts export.
 
-Reads $IPHONE_EXPORT_PATH/YYYY-MM-DD.json (one file per logical day,
-written to an iCloud-synced folder by a Shortcuts automation) and emits
-chunks in the same text formats the backup-based source produced.
+Reads $IPHONE_EXPORT_PATH/YYYY-MM-DD.json — one file per logical day,
+POSTed by a Shortcuts automation and stored by the receiver service —
+and emits chunks in the text formats the diary and query pipeline expect.
 """
 
 import json
@@ -43,12 +43,8 @@ class IPhoneExportSource:
             log.warning(f"  iphone_export: {path} says date={data['date']}, trusting filename")
 
         chunks = []
-        # "sleep_samples" is the legacy field name from the first Shortcut build
-        sleep = data.get("sleep", data.get("sleep_samples"))
-        if isinstance(sleep, dict):
-            chunks.extend(self._sleep_chunks(sleep))
-        elif isinstance(sleep, (str, list)):
-            chunks.extend(self._sleep_samples_chunks(sleep))
+        if "sleep" in data:
+            chunks.extend(self._sleep_samples_chunks(data["sleep"]))
         if "vitals" in data:
             chunks.extend(self._vitals_chunks(data["vitals"], start))
         elif "resting_hr" in data or "hrv" in data:
@@ -57,24 +53,12 @@ class IPhoneExportSource:
             chunks.extend(self._activity_chunks(data["activity"]))
         elif "step" in data or "steps" in data:
             chunks.extend(self._activity_from_lines(data.get("step", data.get("steps"))))
-        if "workouts" in data:
-            chunks.extend(self._workout_chunks(data["workouts"]))
         chunks.sort(key=lambda c: c.window_start)
         log.info(f"  iphone_export: {len(chunks)} chunks")
         return chunks
 
     def _ts(self, iso: str) -> datetime:
         return datetime.fromisoformat(iso).astimezone(self._local_tz)
-
-    def _sleep_chunks(self, sleep: dict) -> list[Chunk]:
-        stage_secs = {
-            stage: sleep.get(f"{stage}_min", 0) * 60
-            for stage in ("core", "deep", "rem", "awake")
-        }
-        if "start" not in sleep:
-            return []
-        return self._build_sleep_chunk(
-            self._ts(sleep["start"]), stage_secs, sleep.get("resp_rate_avg"))
 
     def _sleep_samples_chunks(self, raw) -> list[Chunk]:
         """Aggregate raw per-sample lines ("startISO,endISO,stage") into one chunk.
@@ -101,7 +85,7 @@ class IPhoneExportSource:
                 earliest = start
         if earliest is None:
             return []
-        return self._build_sleep_chunk(earliest.astimezone(self._local_tz), stage_secs, None)
+        return self._build_sleep_chunk(earliest.astimezone(self._local_tz), stage_secs)
 
     def _parse_sample_line(self, line: str) -> tuple[datetime, datetime, str] | None:
         """Parse one sample line into (start, end, stage).
@@ -126,8 +110,7 @@ class IPhoneExportSource:
         except ValueError:
             return None
 
-    def _build_sleep_chunk(self, ts: datetime, stage_secs: dict,
-                           resp_rate_avg: float | None) -> list[Chunk]:
+    def _build_sleep_chunk(self, ts: datetime, stage_secs: dict) -> list[Chunk]:
         core_s = stage_secs.get("core", 0)
         deep_s = stage_secs.get("deep", 0)
         rem_s = stage_secs.get("rem", 0)
@@ -145,9 +128,6 @@ class IPhoneExportSource:
             f"[{ts.strftime('%Y-%m-%d %H:%M')}] "
             f"Sleep: {fmt_duration(total_s)} total — {', '.join(parts)}."
         )
-        if resp_rate_avg:
-            text += f" Avg respiratory rate: {resp_rate_avg:.1f} breaths/min."
-
         return [Chunk(
             window_start=ts.isoformat(),
             text=text,
@@ -243,22 +223,3 @@ class IPhoneExportSource:
             ))
         return chunks
 
-    def _workout_chunks(self, entries: list) -> list[Chunk]:
-        chunks = []
-        for entry in entries:
-            ts = self._ts(entry["start"])
-            duration_s = entry.get("duration_min", 0) * 60
-            parts = [fmt_duration(duration_s)]
-            if entry.get("avg_hr"):
-                parts.append(f"avg HR {round(entry['avg_hr'])}bpm")
-            if entry.get("kcal"):
-                parts.append(f"{round(entry['kcal'])} kcal")
-            if entry.get("distance_km"):
-                parts.append(f"{entry['distance_km']:.2f}km")
-            chunks.append(Chunk(
-                window_start=ts.isoformat(),
-                text=f"[{ts.strftime('%Y-%m-%d %H:%M')}] {entry['type']}: {', '.join(parts)}.",
-                apps=[], total_secs=int(duration_s), source="iphone_export",
-                metadata={"kind": "workout"},
-            ))
-        return chunks

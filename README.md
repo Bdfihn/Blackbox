@@ -11,7 +11,7 @@ Logs everything (PC activity, iPhone, wearables, audio), embeds it into a local 
 | ActivityWatch | Active PC window time, clipped to not-AFK intervals |
 | Git | Commits across all local repos |
 | Claude Code | Session transcripts, summarized by a local LLM |
-| iPhone backup | Apple Health (sleep stages, workouts, vitals) and social interactions |
+| iPhone health export | Sleep stages, hourly steps, resting HR, and HRV, POSTed nightly by a Shortcuts automation |
 
 ## Architecture
 
@@ -37,11 +37,9 @@ docker compose up -d query                           # web UI
 
 Secrets live in an untracked `.env`:
 
-- `IPHONE_BACKUP_PASSWORD` — password for the encrypted iOS backup
-- `SELF_PHONE` — own number, filtered out of social contact lists
 - `HEALTH_EXPORT_TOKEN` — bearer token the receiver requires on health export posts (optional; unauthenticated if unset)
 
-Host paths for the iPhone backup, git repos, and Claude Code transcripts are mounted read-only in `docker-compose.yml`.
+Host paths for git repos and Claude Code transcripts are mounted read-only in `docker-compose.yml`; the receiver writes health exports to `health_export/`, which the ETL mounts read-only at `IPHONE_EXPORT_PATH`.
 
 ## Tests
 

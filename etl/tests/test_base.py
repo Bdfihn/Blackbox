@@ -1,4 +1,16 @@
-from sources.base import Chunk, fmt_duration
+from datetime import datetime
+
+from sources.base import Chunk, floor_dt, fmt_duration
+
+
+def test_floor_dt_15min():
+    ts = datetime(2024, 1, 15, 9, 47, 33)
+    assert floor_dt(ts, 15) == datetime(2024, 1, 15, 9, 45, 0)
+
+
+def test_floor_dt_60min():
+    ts = datetime(2024, 1, 15, 9, 47, 33)
+    assert floor_dt(ts, 60) == datetime(2024, 1, 15, 9, 0, 0)
 
 
 def test_chunk_metadata_defaults_to_empty_dict():

@@ -37,7 +37,7 @@ def _health_chunk(kind, text):
     return Chunk(
         window_start="2024-01-15T05:00:00",
         text=text,
-        source="iphone_health",
+        source="iphone_export",
         metadata={"kind": kind},
     )
 

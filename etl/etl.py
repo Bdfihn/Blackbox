@@ -21,9 +21,6 @@ from sources import (
     DataSource,
     GitSource,
     IPhoneExportSource,
-    IPhoneHealthSource,
-    IPhoneSocialSource,
-    find_backup,
     day_bounds,
     Chunk,
 )
@@ -40,7 +37,6 @@ AW_BASE            = f"http://{os.getenv('ACTIVITYWATCH_HOST', 'host.docker.inte
 GIT_REPOS_ROOT     = os.getenv("GIT_REPOS_ROOT", "")
 CLAUDE_TRANSCRIPTS = os.getenv("CLAUDE_TRANSCRIPTS", "")
 IPHONE_EXPORT_PATH = os.getenv("IPHONE_EXPORT_PATH", "")
-SELF_PHONE         = os.getenv("SELF_PHONE", "")
 QDRANT_HOST        = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT        = int(os.getenv("QDRANT_PORT", 6333))
 OLLAMA_HOST        = os.getenv("OLLAMA_HOST", "localhost")
@@ -235,21 +231,6 @@ def run_etl(target_date: datetime | None = None):
         sources.append(ClaudeCodeSource(CLAUDE_TRANSCRIPTS, LOCAL_TZ, ollama_client, LLM_MODEL, LLM_NUM_CTX))
     if IPHONE_EXPORT_PATH:
         sources.append(IPhoneExportSource(IPHONE_EXPORT_PATH, LOCAL_TZ))
-
-    try:
-        from iOSbackup import iOSbackup as IOSBackup
-        backup_info = find_backup()
-        if backup_info:
-            backuproot, udid = backup_info
-            password = os.getenv("IPHONE_BACKUP_PASSWORD", "")
-            backup = IOSBackup(udid=udid, cleartextpassword=password, backuproot=backuproot)
-            log.info(f"iPhone backup found: {udid} at {backuproot}")
-            sources.append(IPhoneHealthSource(backup, LOCAL_TZ))
-            sources.append(IPhoneSocialSource(backup, LOCAL_TZ, SELF_PHONE))
-        else:
-            log.info("No iPhone backup found — skipping iPhone data.")
-    except Exception as e:
-        log.warning(f"iPhone ingestion failed, continuing without it: {e}")
 
     all_chunks: list[Chunk] = []
     for source in sources:
