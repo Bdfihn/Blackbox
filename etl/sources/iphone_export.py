@@ -9,7 +9,7 @@ import json
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from .base import Chunk, fmt_duration
 
@@ -18,6 +18,9 @@ log = logging.getLogger(__name__)
 # Shortcuts' default date rendering, e.g. "Jul 9, 2026 at 2:41 AM"
 _LOCALE_DT_RE = re.compile(r"[A-Z][a-z]{2} \d{1,2}, \d{4} at \d{1,2}:\d{2} [AP]M")
 _LOCALE_DT_FMT = "%b %d, %Y at %I:%M %p"
+
+ACTIVE_STEPS_PER_HOUR = 500
+STEPS_DEVIATION = 0.30
 
 
 class IPhoneExportSource:
@@ -50,9 +53,10 @@ class IPhoneExportSource:
         elif "resting_hr" in data or "hrv" in data:
             chunks.extend(self._vitals_from_lines(data.get("resting_hr"), data.get("hrv"), start))
         if "activity" in data:
-            chunks.extend(self._activity_chunks(data["activity"]))
-        elif "step" in data or "steps" in data:
-            chunks.extend(self._activity_from_lines(data.get("step", data.get("steps"))))
+            hourly = self._hourly_steps_from_entries(data["activity"])
+        else:
+            hourly = self._hourly_steps_from_lines(data.get("step", data.get("steps")))
+        chunks.extend(self._steps_chunks(hourly, start, None))
         chunks.sort(key=lambda c: c.window_start)
         log.info(f"  iphone_export: {len(chunks)} chunks")
         return chunks
@@ -154,17 +158,56 @@ class IPhoneExportSource:
                 log.warning(f"  iphone_export: non-numeric quantity: {value_s!r}")
         return values
 
-    def _activity_from_lines(self, raw) -> list[Chunk]:
-        """Sum hourly-grouped step lines into the contract's activity entries."""
+    def _hourly_steps_from_lines(self, raw) -> dict[datetime, float]:
         hourly: dict[datetime, float] = {}
         for start, _end, value in self._quantity_lines(raw):
             hour = start.astimezone(self._local_tz).replace(minute=0, second=0, microsecond=0)
             hourly[hour] = hourly.get(hour, 0) + value
-        entries = [
-            {"hour": hour.isoformat(), "steps": int(total)}
-            for hour, total in sorted(hourly.items()) if total
-        ]
-        return self._activity_chunks(entries)
+        return hourly
+
+    def _hourly_steps_from_entries(self, entries: list) -> dict[datetime, float]:
+        hourly: dict[datetime, float] = {}
+        for entry in entries:
+            steps = entry.get("steps")
+            if steps:
+                hour = self._ts(entry["hour"])
+                hourly[hour] = hourly.get(hour, 0) + steps
+        return hourly
+
+    def _steps_chunks(self, hourly: dict[datetime, float], day_start: datetime, baseline_mean: float | None) -> list[Chunk]:
+        total = int(sum(hourly.values()))
+        if not total:
+            return []
+
+        chunks = []
+        active = sorted(h for h, v in hourly.items() if v >= ACTIVE_STEPS_PER_HOUR)
+        stretch: list[datetime] = []
+        for hour in active + [None]:
+            if stretch and (hour is None or (hour - stretch[-1]).total_seconds() > 3600):
+                first, last = stretch[0], stretch[-1] + timedelta(hours=1)
+                steps = sum(hourly[h] for h in stretch)
+                span = f"{first.strftime('%Y-%m-%d %H:%M')}–{last.strftime('%H:%M')}"
+                chunks.append(Chunk(
+                    window_start=first.isoformat(),
+                    text=f"[{span}] Sustained movement: ~{round(steps, -2):,.0f} steps.",
+                    apps=[], total_secs=3600 * len(stretch), source="iphone_export",
+                    metadata={"kind": "steps"},
+                ))
+                stretch = []
+            if hour is not None:
+                stretch.append(hour)
+
+        comparison = ""
+        if baseline_mean and abs(total - baseline_mean) / baseline_mean > STEPS_DEVIATION:
+            direction = "above" if total > baseline_mean else "below"
+            comparison = f" — well {direction} recent average ({baseline_mean:,.0f}/day)"
+        chunks.append(Chunk(
+            window_start=day_start.isoformat(),
+            text=f"[{day_start.strftime('%Y-%m-%d')}] Steps: {total:,} total{comparison}.",
+            apps=[], total_secs=0, source="iphone_export",
+            metadata={"kind": "steps"},
+        ))
+        return chunks
 
     def _vitals_from_lines(self, resting_raw, hrv_raw, window_start: datetime) -> list[Chunk]:
         """Build the contract's vitals section from resting HR and HRV sample lines."""
@@ -203,23 +246,4 @@ class IPhoneExportSource:
             metadata={"kind": "vitals"},
         )]
 
-    def _activity_chunks(self, entries: list) -> list[Chunk]:
-        chunks = []
-        for entry in entries:
-            ts = self._ts(entry["hour"])
-            parts = []
-            if entry.get("steps"):
-                parts.append(f"{int(entry['steps'])} steps")
-            if entry.get("avg_hr"):
-                parts.append(f"avg HR {round(entry['avg_hr'])}bpm")
-            if entry.get("avg_mets"):
-                parts.append(f"avg effort {entry['avg_mets']:.1f} METs")
-            if not parts:
-                continue
-            chunks.append(Chunk(
-                window_start=ts.isoformat(),
-                text=f"[{ts.strftime('%Y-%m-%d %H:%M')}] Activity: {', '.join(parts)}.",
-                apps=[], total_secs=3600, source="iphone_export",
-            ))
-        return chunks
 

@@ -117,22 +117,38 @@ def test_sleep_accepts_json_array_of_lines(tmp_path):
     assert chunks[0].text == "[2026-07-08 01:14] Sleep: 1h 30m total — Core 1h, Deep 30m."
 
 
-def test_step_lines_bucket_by_hour_into_activity_chunks(tmp_path):
-    lines = "\n".join([
-        "Jul 9, 2026 at 1:13 AMJul 9, 2026 at 2:01 AM184",
-        "Jul 9, 2026 at 3:00 AMJul 9, 2026 at 3:00 AM0",
-        "Jul 9, 2026 at 8:34 AMJul 9, 2026 at 9:02 AM89",
-        "Jul 9, 2026 at 8:07 PMJul 9, 2026 at 9:06 PM3235",
-    ])
-    export_dir = _write_export(tmp_path, {"date": "2026-07-09", "step": lines}, name="2026-07-09.json")
-    source = IPhoneExportSource(str(tmp_path), LOCAL_TZ)
-    chunks = source.get_chunks(datetime(2026, 7, 9, 4, 0, tzinfo=LOCAL_TZ),
-                               datetime(2026, 7, 10, 4, 0, tzinfo=LOCAL_TZ))
+def test_step_lines_render_stretches_and_daily_total(tmp_path):
+    export_dir = _write_export(tmp_path, {"step": "\n".join([
+        "2026-07-08T09:10:00-04:00,2026-07-08T09:20:00-04:00,120",
+        "2026-07-08T20:10:00-04:00,2026-07-08T20:40:00-04:00,3235",
+        "2026-07-08T21:05:00-04:00,2026-07-08T21:30:00-04:00,1908",
+    ])})
+    chunks = _get_chunks(export_dir)
     texts = [c.text for c in chunks]
-    assert "[2026-07-09 01:00] Activity: 184 steps." in texts
-    assert "[2026-07-09 08:00] Activity: 89 steps." in texts
-    assert "[2026-07-09 20:00] Activity: 3235 steps." in texts
-    assert len(chunks) == 3  # the zero-step filler line emits nothing
+    assert "[2026-07-08 20:00–22:00] Sustained movement: ~5,100 steps." in texts
+    assert "[2026-07-08] Steps: 5,263 total." in texts
+    assert not any("Activity:" in t for t in texts)
+    assert all(c.metadata == {"kind": "steps"} for c in chunks)
+
+
+def test_quiet_hours_only_feed_the_total(tmp_path):
+    export_dir = _write_export(tmp_path, {"step": "\n".join([
+        "2026-07-08T09:10:00-04:00,2026-07-08T09:20:00-04:00,120",
+        "2026-07-08T14:10:00-04:00,2026-07-08T14:20:00-04:00,85",
+    ])})
+    chunks = _get_chunks(export_dir)
+    assert len(chunks) == 1
+    assert chunks[0].text == "[2026-07-08] Steps: 205 total."
+
+
+def test_stretch_threshold_is_per_hour_boundary(tmp_path):
+    export_dir = _write_export(tmp_path, {"step": "\n".join([
+        "2026-07-08T20:10:00-04:00,2026-07-08T20:40:00-04:00,500",
+        "2026-07-08T21:05:00-04:00,2026-07-08T21:30:00-04:00,499",
+    ])})
+    chunks = _get_chunks(export_dir)
+    texts = [c.text for c in chunks]
+    assert "[2026-07-08 20:00–21:00] Sustained movement: ~500 steps." in texts
 
 
 def test_resting_hr_and_hrv_lines_build_vitals_chunk(tmp_path):
@@ -201,20 +217,14 @@ def test_empty_vitals_section_emits_nothing(tmp_path):
     assert _get_chunks(export_dir) == []
 
 
-def test_activity_chunks_match_backup_format(tmp_path):
-    export_dir = _write_export(tmp_path, {
-        "date": "2026-07-08",
-        "activity": [
-            {"hour": "2026-07-08T14:00:00-04:00", "steps": 147, "avg_hr": 76, "avg_mets": 3.04},
-            {"hour": "2026-07-08T15:00:00-04:00", "avg_hr": 70},
-        ],
-    })
+def test_activity_entries_render_via_steps_chunks(tmp_path):
+    export_dir = _write_export(tmp_path, {"activity": [
+        {"hour": "2026-07-08T14:00:00-04:00", "steps": 147, "avg_hr": 76},
+        {"hour": "2026-07-08T15:00:00-04:00", "avg_hr": 70},
+    ]})
     chunks = _get_chunks(export_dir)
-    assert len(chunks) == 2
-    assert chunks[0].text == "[2026-07-08 14:00] Activity: 147 steps, avg HR 76bpm, avg effort 3.0 METs."
-    assert chunks[0].total_secs == 3600
-    assert chunks[0].metadata == {}
-    assert chunks[1].text == "[2026-07-08 15:00] Activity: avg HR 70bpm."
+    assert len(chunks) == 1
+    assert chunks[0].text == "[2026-07-08] Steps: 147 total."
 
 
 def test_chunks_sorted_by_window_start(tmp_path):
