@@ -11,6 +11,38 @@ log = logging.getLogger(__name__)
 
 WINDOW_MINUTES = 5
 
+EPISODE_GAP_SECS = 120
+EPISODE_MIN_SECS = 60
+
+_BROWSER_SUFFIXES = {
+    "Google Chrome": "Chrome",
+    "Mozilla Firefox": "Firefox",
+    "Microsoft Edge": "Edge",
+}
+_SITE_SUFFIXES = ("YouTube",)
+
+
+def normalize_title(app: str, title: str) -> tuple[str, str]:
+    """Strip boilerplate suffixes from a window title.
+
+    Returns (clean_title, label) where label is the most specific source
+    we can name deterministically: a site, a browser, or the bare app.
+    """
+    label = app[:-4] if app.lower().endswith(".exe") else app
+    for browser, short in _BROWSER_SUFFIXES.items():
+        suffix = f" - {browser}"
+        if title.endswith(suffix):
+            title = title[: -len(suffix)]
+            label = short
+            break
+    for site in _SITE_SUFFIXES:
+        suffix = f" - {site}"
+        if title.endswith(suffix):
+            title = title[: -len(suffix)]
+            label = site
+            break
+    return title.strip(), label
+
 # aw-server rejects requests whose Host header isn't localhost (DNS-rebinding
 # protection); from inside the container we reach it via host.docker.internal.
 _AW_HEADERS = {"Host": "localhost:5600"}
