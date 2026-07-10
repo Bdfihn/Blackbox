@@ -227,6 +227,34 @@ def test_activity_entries_render_via_steps_chunks(tmp_path):
     assert chunks[0].text == "[2026-07-08] Steps: 147 total."
 
 
+def test_trailing_metrics_reads_prior_days(tmp_path):
+    for day, steps in (("2026-07-06", 4000), ("2026-07-07", 6000)):
+        (tmp_path / f"{day}.json").write_text(json.dumps({
+            "step": f"{day}T10:10:00-04:00,{day}T10:40:00-04:00,{steps}",
+            "resting_hr": f"{day}T23:00:00-04:00,{day}T23:00:00-04:00,60",
+            "hrv": f"{day}T23:00:00-04:00,{day}T23:00:00-04:00,50",
+        }), encoding="utf-8")
+    src = IPhoneExportSource(str(tmp_path), LOCAL_TZ)
+    metrics = src._trailing_metrics(_START)
+    assert len(metrics) == 2
+    assert {m["steps"] for m in metrics} == {4000, 6000}
+    assert all(m["resting_hr"] == 60 and m["hrv_ms"] == 50 for m in metrics)
+
+
+def test_trailing_metrics_skips_missing_and_bad_files(tmp_path):
+    (tmp_path / "2026-07-05.json").write_text("{not json", encoding="utf-8")
+    (tmp_path / "2026-07-07.json").write_text(json.dumps({"hrv": "2026-07-07T23:00:00-04:00,2026-07-07T23:00:00-04:00,44"}), encoding="utf-8")
+    src = IPhoneExportSource(str(tmp_path), LOCAL_TZ)
+    metrics = src._trailing_metrics(_START)
+    assert metrics == [{"steps": None, "resting_hr": None, "hrv_ms": 44.0}]
+
+
+def test_trailing_metrics_ignores_today_and_future(tmp_path):
+    (tmp_path / "2026-07-08.json").write_text(json.dumps({"step": "2026-07-08T10:00:00-04:00,2026-07-08T10:30:00-04:00,9999"}), encoding="utf-8")
+    src = IPhoneExportSource(str(tmp_path), LOCAL_TZ)
+    assert src._trailing_metrics(_START) == []
+
+
 def test_chunks_sorted_by_window_start(tmp_path):
     export_dir = _write_export(tmp_path, {
         "date": "2026-07-08",

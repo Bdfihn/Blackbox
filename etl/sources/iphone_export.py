@@ -22,6 +22,9 @@ _LOCALE_DT_FMT = "%b %d, %Y at %I:%M %p"
 ACTIVE_STEPS_PER_HOUR = 500
 STEPS_DEVIATION = 0.30
 
+BASELINE_DAYS = 14
+BASELINE_MIN_DAYS = 7
+
 
 class IPhoneExportSource:
     def __init__(self, export_dir: str, local_tz):
@@ -30,28 +33,20 @@ class IPhoneExportSource:
 
     def get_chunks(self, start: datetime, end: datetime) -> list[Chunk]:
         date_str = start.strftime("%Y-%m-%d")
-        path = os.path.join(self._export_dir, f"{date_str}.json")
-        if not os.path.exists(path):
-            log.info(f"  iphone_export: no file for {date_str}")
-            return []
-
-        try:
-            with open(path, encoding="utf-8") as f:
-                data = json.load(f)
-        except (json.JSONDecodeError, OSError) as e:
-            log.warning(f"  iphone_export: unreadable {path}: {e}")
+        data = self._load_export(date_str)
+        if data is None:
+            log.info(f"  iphone_export: no usable file for {date_str}")
             return []
 
         if data.get("date") not in (None, date_str):
-            log.warning(f"  iphone_export: {path} says date={data['date']}, trusting filename")
+            log.warning(f"  iphone_export: {date_str}.json says date={data['date']}, trusting filename")
 
         chunks = []
         if "sleep" in data:
             chunks.extend(self._sleep_samples_chunks(data["sleep"]))
-        if "vitals" in data:
-            chunks.extend(self._vitals_chunks(data["vitals"], start))
-        elif "resting_hr" in data or "hrv" in data:
-            chunks.extend(self._vitals_from_lines(data.get("resting_hr"), data.get("hrv"), start))
+        vitals = self._extract_vitals(data)
+        if vitals:
+            chunks.extend(self._vitals_chunks(vitals, start))
         if "activity" in data:
             hourly = self._hourly_steps_from_entries(data["activity"])
         else:
@@ -209,17 +204,49 @@ class IPhoneExportSource:
         ))
         return chunks
 
-    def _vitals_from_lines(self, resting_raw, hrv_raw, window_start: datetime) -> list[Chunk]:
-        """Build the contract's vitals section from resting HR and HRV sample lines."""
+    def _load_export(self, date_str: str) -> dict | None:
+        path = os.path.join(self._export_dir, f"{date_str}.json")
+        if not os.path.exists(path):
+            return None
+        try:
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            log.warning(f"  iphone_export: unreadable {path}: {e}")
+            return None
+
+    def _extract_vitals(self, data: dict) -> dict:
+        """Vitals values from either payload shape (contract dict or sample lines)."""
+        if "vitals" in data:
+            return data["vitals"]
         vitals = {}
-        resting = self._quantity_lines(resting_raw)
+        resting = self._quantity_lines(data.get("resting_hr"))
         if resting:
             vitals["resting_hr"] = resting[-1][2]
             vitals["time"] = resting[-1][0].astimezone(self._local_tz).isoformat()
-        hrv = [v for _s, _e, v in self._quantity_lines(hrv_raw)]
+        hrv = [v for _s, _e, v in self._quantity_lines(data.get("hrv"))]
         if hrv:
             vitals["hrv_ms"] = sum(hrv) / len(hrv)
-        return self._vitals_chunks(vitals, window_start)
+        return vitals
+
+    def _trailing_metrics(self, start: datetime) -> list[dict]:
+        """Per-day steps/vitals values for the BASELINE_DAYS days before `start`."""
+        metrics = []
+        for offset in range(1, BASELINE_DAYS + 1):
+            data = self._load_export((start - timedelta(days=offset)).strftime("%Y-%m-%d"))
+            if data is None:
+                continue
+            if "activity" in data:
+                hourly = self._hourly_steps_from_entries(data["activity"])
+            else:
+                hourly = self._hourly_steps_from_lines(data.get("step", data.get("steps")))
+            vitals = self._extract_vitals(data)
+            metrics.append({
+                "steps": sum(hourly.values()) or None,
+                "resting_hr": vitals.get("resting_hr"),
+                "hrv_ms": vitals.get("hrv_ms"),
+            })
+        return metrics
 
     def _vitals_chunks(self, vitals: dict, window_start: datetime) -> list[Chunk]:
         parts = []
