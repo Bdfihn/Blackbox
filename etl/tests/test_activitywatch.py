@@ -117,3 +117,79 @@ def test_normalize_title_empty_title():
     title, label = normalize_title("Code.exe", "")
     assert title == ""
     assert label == "Code"
+
+
+def test_consecutive_same_title_events_merge_into_one_episode(monkeypatch):
+    src = _source(monkeypatch, {
+        WINDOW_BUCKET: [
+            _event("2026-07-01T10:00:00Z", 300, app="chrome.exe", title="BLG VS HLE - MSI 2026 - YouTube - Google Chrome"),
+            _event("2026-07-01T10:05:00Z", 300, app="chrome.exe", title="BLG VS HLE - MSI 2026 - YouTube - Google Chrome"),
+        ],
+    })
+    chunks = src.get_chunks(START, END)
+    assert len(chunks) == 1
+    assert chunks[0].total_secs == 600
+    assert 'YouTube: "BLG VS HLE - MSI 2026" (10m)' in chunks[0].text
+    assert "10:00–10:10" in chunks[0].text
+
+
+def test_gap_over_tolerance_splits_episodes(monkeypatch):
+    src = _source(monkeypatch, {
+        WINDOW_BUCKET: [
+            _event("2026-07-01T10:00:00Z", 300, app="chrome.exe", title="BLG VS HLE - MSI 2026 - YouTube - Google Chrome"),
+            # ends 10:05; next starts 10:08 → 180s gap > EPISODE_GAP_SECS
+            _event("2026-07-01T10:08:00Z", 300, app="chrome.exe", title="BLG VS HLE - MSI 2026 - YouTube - Google Chrome"),
+        ],
+    })
+    chunks = src.get_chunks(START, END)
+    assert len(chunks) == 2
+
+
+def test_gap_within_tolerance_bridges_episode(monkeypatch):
+    src = _source(monkeypatch, {
+        WINDOW_BUCKET: [
+            _event("2026-07-01T10:00:00Z", 300, app="chrome.exe", title="BLG VS HLE - MSI 2026 - YouTube - Google Chrome"),
+            # ends 10:05; next starts 10:06:30 → 90s gap <= 120s
+            _event("2026-07-01T10:06:30Z", 300, app="chrome.exe", title="BLG VS HLE - MSI 2026 - YouTube - Google Chrome"),
+        ],
+    })
+    chunks = src.get_chunks(START, END)
+    assert len(chunks) == 1
+    assert chunks[0].total_secs == 600
+
+
+def test_short_episodes_fold_into_briefly_line(monkeypatch):
+    src = _source(monkeypatch, {
+        WINDOW_BUCKET: [
+            _event("2026-07-01T10:00:00Z", 30, app="chrome.exe", title="skirk dire - YouTube - Google Chrome"),
+            _event("2026-07-01T10:00:30Z", 20, app="chrome.exe", title="Marketplace - Google Chrome"),
+            _event("2026-07-01T10:01:00Z", 300, app="chrome.exe", title="Skirk vs Ball in 66s - YouTube - Google Chrome"),
+        ],
+    })
+    chunks = src.get_chunks(START, END)
+    assert len(chunks) == 2
+    assert chunks[0].text.startswith("[2026-07-01 10:00] Briefly: ")
+    assert '"skirk dire" (YouTube)' in chunks[0].text
+    assert '"Marketplace" (Chrome)' in chunks[0].text
+    assert 'YouTube: "Skirk vs Ball in 66s" (5m)' in chunks[1].text
+
+
+def test_title_equal_to_label_renders_label_only(monkeypatch):
+    src = _source(monkeypatch, {
+        WINDOW_BUCKET: [_event("2026-07-01T10:00:00Z", 300, app="Genshin Impact.exe", title="Genshin Impact")],
+    })
+    chunks = src.get_chunks(START, END)
+    assert len(chunks) == 1
+    assert "Genshin Impact (5m)" in chunks[0].text
+    assert '"' not in chunks[0].text
+
+
+def test_episode_chunks_are_chronological(monkeypatch):
+    src = _source(monkeypatch, {
+        WINDOW_BUCKET: [
+            _event("2026-07-01T11:00:00Z", 300, app="Code.exe", title="etl.py"),
+            _event("2026-07-01T10:00:00Z", 300, app="chrome.exe", title="Docs - Google Chrome"),
+        ],
+    })
+    chunks = src.get_chunks(START, END)
+    assert [c.window_start for c in chunks] == sorted(c.window_start for c in chunks)

@@ -1,15 +1,13 @@
 import logging
 import zoneinfo
-from collections import Counter
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 import requests
 
-from .base import Chunk, floor_dt
+from .base import Chunk, fmt_duration
 
 log = logging.getLogger(__name__)
-
-WINDOW_MINUTES = 5
 
 EPISODE_GAP_SECS = 120
 EPISODE_MIN_SECS = 60
@@ -88,11 +86,19 @@ def _clip_events(events: list[dict], intervals: list[tuple[datetime, datetime]])
     return clipped
 
 
+@dataclass
+class _Episode:
+    title: str
+    label: str
+    start: datetime
+    end: datetime
+    active_secs: float
+
+
 class ActivityWatchSource:
-    def __init__(self, aw_base: str, local_tz: zoneinfo.ZoneInfo, window_minutes: int = WINDOW_MINUTES):
+    def __init__(self, aw_base: str, local_tz: zoneinfo.ZoneInfo):
         self._aw_base = aw_base
         self._local_tz = local_tz
-        self._window_minutes = window_minutes
 
     def get_chunks(self, start: datetime, end: datetime) -> list[Chunk]:
         try:
@@ -113,9 +119,10 @@ class ActivityWatchSource:
                 log.info(f"  {bucket_id}: {len(events)} events")
                 if active is not None:
                     events = _clip_events(events, active)
-                chunks.extend(self._chunk_events(events))
+                chunks.extend(self._render_episodes(self._build_episodes(events)))
             except Exception as e:
                 log.error(f"  Error fetching {bucket_id}: {e}")
+        chunks.sort(key=lambda c: c.window_start)
         return chunks
 
     def _fetch_buckets(self) -> list[str]:
@@ -160,46 +167,72 @@ class ActivityWatchSource:
         r.raise_for_status()
         return r.json()
 
-    def _chunk_events(self, events: list[dict]) -> list[Chunk]:
-        if not events:
-            return []
-
-        windows: dict[datetime, list] = {}
-
-        for event in events:
+    def _build_episodes(self, events: list[dict]) -> list[_Episode]:
+        episodes: list[_Episode] = []
+        current: _Episode | None = None
+        for event in sorted(events, key=lambda e: e["timestamp"]):
             ts = _parse_ts(event["timestamp"]).astimezone(self._local_tz)
             duration = event.get("duration", 0)
             data = event.get("data", {})
-            app = data.get("app", "unknown")
-            title = data.get("title", "")
+            title, label = normalize_title(data.get("app", "unknown"), data.get("title", ""))
+            end = ts + timedelta(seconds=duration)
+            if (
+                current
+                and current.title == title
+                and current.label == label
+                and (ts - current.end).total_seconds() <= EPISODE_GAP_SECS
+            ):
+                current.end = max(current.end, end)
+                current.active_secs += duration
+            else:
+                if current:
+                    episodes.append(current)
+                current = _Episode(title, label, ts, end, duration)
+        if current:
+            episodes.append(current)
+        return episodes
 
-            floored = floor_dt(ts, self._window_minutes)
-            windows.setdefault(floored, []).append({"app": app, "title": title, "duration_secs": duration})
+    def _render_episodes(self, episodes: list[_Episode]) -> list[Chunk]:
+        chunks: list[Chunk] = []
+        brief: list[_Episode] = []
 
-        chunks = []
-        for window_start, items in sorted(windows.items()):
-            total = sum(i["duration_secs"] for i in items)
-            app_totals: Counter[str] = Counter()
-            for i in items:
-                app_totals[i["app"]] += i["duration_secs"]
-            top_apps = app_totals.most_common(5)
+        def subject(ep: _Episode) -> str:
+            if ep.title and ep.title != ep.label:
+                return f'{ep.label}: "{ep.title}"'
+            return ep.title or ep.label
 
-            descriptions = [
-                f"{i['app']}: '{i['title']}' ({round(i['duration_secs'] / 60, 1)}m)"
-                for i in items
-                if i["duration_secs"] > 10
-            ]
-            text = (
-                f"[{window_start.strftime('%Y-%m-%d %H:%M')}] "
-                f"PC activity for {self._window_minutes} minutes. "
-                f"Top apps: {', '.join(f'{a}({round(s/60,1)}m)' for a, s in top_apps)}. "
-                f"Details: {'; '.join(descriptions[:10])}"
-            )
+        def flush_brief():
+            if not brief:
+                return
+            first = brief[0]
+            seen: set[str] = set()
+            items: list[str] = []
+            for ep in brief:
+                item = f'"{ep.title}" ({ep.label})' if ep.title and ep.title != ep.label else ep.label
+                if item not in seen:
+                    seen.add(item)
+                    items.append(item)
             chunks.append(Chunk(
-                window_start=window_start.isoformat(),
-                text=text,
-                apps=[a for a, _ in top_apps],
-                total_secs=total,
+                window_start=first.start.isoformat(),
+                text=f"[{first.start.strftime('%Y-%m-%d %H:%M')}] Briefly: {', '.join(items)}.",
+                apps=sorted({ep.label for ep in brief}),
+                total_secs=sum(ep.active_secs for ep in brief),
                 source="activitywatch",
             ))
+            brief.clear()
+
+        for ep in episodes:
+            if ep.active_secs < EPISODE_MIN_SECS:
+                brief.append(ep)
+                continue
+            flush_brief()
+            span = f"{ep.start.strftime('%Y-%m-%d %H:%M')}–{ep.end.strftime('%H:%M')}"
+            chunks.append(Chunk(
+                window_start=ep.start.isoformat(),
+                text=f"[{span}] {subject(ep)} ({fmt_duration(ep.active_secs)})",
+                apps=[ep.label],
+                total_secs=ep.active_secs,
+                source="activitywatch",
+            ))
+        flush_brief()
         return chunks
