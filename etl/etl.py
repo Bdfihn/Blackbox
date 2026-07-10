@@ -101,42 +101,9 @@ def upsert_chunks(chunks: list[Chunk], date_str: str):
     log.info(f"Upserted {len(points)} chunks into Qdrant.")
 
 
-# ── Timeline preprocessing ────────────────────────────────────────────────────
-def preprocess_chunks(chunks: list[Chunk]) -> list[Chunk]:
-    """
-    Reduce noise before diary generation:
-    1. Drop chunks under 30 seconds.
-    2. Merge consecutive chunks that share the same dominant app into one block.
-    """
-    filtered = [c for c in chunks if c.total_secs == 0 or c.total_secs >= 30]
-
-    if not filtered:
-        return filtered
-
-    merged: list[Chunk] = []
-    current = filtered[0]
-
-    for nxt in filtered[1:]:
-        current_dominant = current.apps[0] if current.apps else None
-        nxt_dominant = nxt.apps[0] if nxt.apps else None
-
-        if current_dominant and current_dominant == nxt_dominant:
-            seen = set(current.apps)
-            extra = [a for a in nxt.apps if a not in seen]
-            current = Chunk(
-                window_start=current.window_start,
-                text=current.text + "\n" + nxt.text,
-                apps=current.apps + extra,
-                total_secs=current.total_secs + nxt.total_secs,
-                source=current.source,
-                metadata=current.metadata,
-            )
-        else:
-            merged.append(current)
-            current = nxt
-
-    merged.append(current)
-    return merged
+def select_diary_chunks(chunks: list[Chunk]) -> list[Chunk]:
+    """Chunks that belong in the diary prompt; everything is still upserted to Qdrant."""
+    return [c for c in chunks if c.metadata.get("diary", True)]
 
 
 # ── Diary generation ──────────────────────────────────────────────────────────
@@ -170,14 +137,14 @@ Write in first person, past tense, in a natural and honest voice — like a real
 Rules:
 - Plain text only. No markdown, no bullet points, no headers.
 - No advice, editorializing, or filler phrases like "it was a productive day."
-- Follow the timeline chronologically but group related activity into natural blocks — don't list every event individually.
-- Use 12-hour AM/PM time format, but only anchor specific times when they matter. Don't timestamp every sentence.
-- For social activity: describe who you spent time with and how (texting, calls, in person) — don't list every individual message.
-- For coding/work: describe what you were building or fixing at a high level. Do NOT reproduce commit messages verbatim. Name the project and what changed, not the git log.
-- For Claude Code sessions: describe what problem was being solved or what feature was being built, in plain language.
-- For health/steps: only mention if notable. Don't list hourly step counts.
+- The timeline is an event log with exact titles. Name the specific things — the matchup, the game, the boss, the video's subject, the project, the person — never just the app or the category.
+- The test for every sentence: reading it in a year, it should say what the day was about, not which apps were open.
+- Long unfocused stretches are part of the day — characterize them honestly, in proportion to the time they took.
+- Follow the timeline chronologically and group related activity into natural blocks.
+- Use 12-hour AM/PM time format, but only anchor specific times when they matter.
+- For social activity: describe who you spent time with and how (texting, calls, in person) — don't list every individual message. Names are better than phone numbers.
+- For coding/work and Claude Code sessions: describe what was being built or fixed at a high level, in plain language. Do NOT reproduce commit messages verbatim.
 {health_rules_text}
-- Names are better than phone numbers. If a contact name is available, use it.
 - Allocate paragraph space proportional to how much time was actually spent on each activity."""
 
     user_content = f"""TIMELINE:
@@ -241,8 +208,8 @@ def run_etl(target_date: datetime | None = None):
     upsert_chunks(all_chunks, date_str)
 
     log.info("Generating diary entry...")
-    diary_chunks = preprocess_chunks(all_chunks)
-    log.info(f"Preprocessed {len(all_chunks)} chunks → {len(diary_chunks)} for diary.")
+    diary_chunks = select_diary_chunks(all_chunks)
+    log.info(f"{len(diary_chunks)} of {len(all_chunks)} chunks selected for diary.")
     diary_content = generate_diary_entry(date_str, diary_chunks)
     write_diary(date_str, diary_content)
 

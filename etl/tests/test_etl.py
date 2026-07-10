@@ -78,6 +78,19 @@ def test_generate_diary_entry_omits_vitals_and_workout_rules_when_absent(monkeyp
     assert "For workouts" not in system_content
 
 
+def test_select_diary_chunks_filters_suppressed():
+    visible = Chunk(window_start="2024-01-15T09:00:00", text="a", source="test")
+    suppressed = Chunk(window_start="2024-01-15T10:00:00", text="b", source="test", metadata={"diary": False})
+    assert etl.select_diary_chunks([visible, suppressed]) == [visible]
+
+
+def test_prompt_demands_specifics_over_categories(monkeypatch):
+    chunks = [Chunk(window_start="2024-01-15T09:00:00", text="Browsed the web.", source="test")]
+    system_content = _diary_system_content(monkeypatch, chunks)
+    assert "Name the specific" in system_content
+    assert "event log with exact titles" in system_content
+
+
 def test_generate_diary_entry_sets_num_ctx_to_avoid_truncation(monkeypatch):
     mock_ollama = MagicMock()
     mock_ollama.chat.return_value = {"message": {"content": "Diary body."}}
