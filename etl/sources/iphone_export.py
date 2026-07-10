@@ -65,8 +65,14 @@ class IPhoneExportSource:
         return self._build_sleep_chunk(
             self._ts(sleep["start"]), stage_secs, sleep.get("resp_rate_avg"))
 
-    def _sleep_samples_chunks(self, raw: str) -> list[Chunk]:
-        """Aggregate raw per-sample lines ("startISO,endISO,stage") into one chunk."""
+    def _sleep_samples_chunks(self, raw) -> list[Chunk]:
+        """Aggregate raw per-sample lines ("startISO,endISO,stage") into one chunk.
+
+        Accepts one newline-joined string or a JSON array of line strings —
+        Shortcuts produces either depending on how the repeat results are bound.
+        """
+        if isinstance(raw, list):
+            raw = "\n".join(str(item) for item in raw)
         stage_secs: dict[str, float] = {}
         earliest = None
         for line in raw.strip().splitlines():
