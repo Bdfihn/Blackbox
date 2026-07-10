@@ -71,14 +71,14 @@ def test_sleep_with_zero_total_is_skipped(tmp_path):
     assert _get_chunks(export_dir) == []
 
 
-def test_sleep_samples_lines_aggregate_into_sleep_chunk(tmp_path):
+def test_sleep_lines_aggregate_into_sleep_chunk(tmp_path):
     lines = "\n".join([
         "2026-07-08T01:14:00-04:00,2026-07-08T03:29:00-04:00,Core",
         "2026-07-08T03:29:00-04:00,2026-07-08T04:10:00-04:00,Deep",
         "2026-07-08T04:10:00-04:00,2026-07-08T04:39:00-04:00,REM",
         "2026-07-08T04:39:00-04:00,2026-07-08T07:35:00-04:00,Awake",
     ])
-    export_dir = _write_export(tmp_path, {"date": "2026-07-08", "sleep_samples": lines})
+    export_dir = _write_export(tmp_path, {"date": "2026-07-08", "sleep": lines})
     chunks = _get_chunks(export_dir)
     assert len(chunks) == 1
     c = chunks[0]
@@ -88,58 +88,66 @@ def test_sleep_samples_lines_aggregate_into_sleep_chunk(tmp_path):
     assert c.total_secs == (135 + 41 + 29) * 60
 
 
-def test_sleep_samples_skips_malformed_lines_and_unknown_stages(tmp_path):
+def test_sleep_skips_malformed_lines_and_unknown_stages(tmp_path):
     lines = "\n".join([
         "2026-07-08T01:14:00-04:00,2026-07-08T02:14:00-04:00,Core",
         "not,a,valid,line",
         "garbage",
         "2026-07-08T02:14:00-04:00,2026-07-08T03:14:00-04:00,In Bed",
     ])
-    export_dir = _write_export(tmp_path, {"date": "2026-07-08", "sleep_samples": lines})
+    export_dir = _write_export(tmp_path, {"date": "2026-07-08", "sleep": lines})
     chunks = _get_chunks(export_dir)
     assert len(chunks) == 1
     assert chunks[0].text == "[2026-07-08 01:14] Sleep: 1h total — Core 1h."
 
 
-def test_sleep_samples_with_no_valid_lines_emits_nothing(tmp_path):
-    export_dir = _write_export(tmp_path, {"date": "2026-07-08", "sleep_samples": "Core\nDeep\nAwake"})
+def test_sleep_with_no_valid_lines_emits_nothing(tmp_path):
+    export_dir = _write_export(tmp_path, {"date": "2026-07-08", "sleep": "Core\nDeep\nAwake"})
     assert _get_chunks(export_dir) == []
 
 
-def test_sleep_samples_accepts_space_separated_lines(tmp_path):
+def test_sleep_accepts_space_separated_lines(tmp_path):
     lines = "\n".join([
         "2026-07-08T01:14:00-04:00 2026-07-08T02:14:00-04:00 Core",
         "2026-07-08T02:14:00-04:00 2026-07-08T03:14:00-04:00 In Bed",
     ])
-    export_dir = _write_export(tmp_path, {"date": "2026-07-08", "sleep_samples": lines})
+    export_dir = _write_export(tmp_path, {"date": "2026-07-08", "sleep": lines})
     chunks = _get_chunks(export_dir)
     assert len(chunks) == 1
     assert chunks[0].text == "[2026-07-08 01:14] Sleep: 1h total — Core 1h."
 
 
-def test_sleep_samples_accepts_shortcuts_locale_datetime_lines(tmp_path):
+def test_sleep_accepts_shortcuts_locale_datetime_lines(tmp_path):
     lines = "\n".join([
         "Jul 9, 2026 at 2:41 AMJul 9, 2026 at 2:53 AMCore",
         "Jul 9, 2026 at 2:53 AMJul 9, 2026 at 3:02 AMDeep",
     ])
-    export_dir = _write_export(tmp_path, {"date": "2026-07-09", "sleep_samples": lines})
+    export_dir = _write_export(tmp_path, {"date": "2026-07-09", "sleep": lines})
     chunks = _get_chunks(export_dir)
     assert len(chunks) == 1
     assert chunks[0].text == "[2026-07-09 02:41] Sleep: 21m total — Core 12m, Deep 9m."
 
 
-def test_sleep_samples_locale_lines_with_narrow_no_break_space(tmp_path):
+def test_sleep_locale_lines_with_narrow_no_break_space(tmp_path):
     lines = "Jul 9, 2026 at 2:41 AMJul 9, 2026 at 3:41 AMCore"
-    export_dir = _write_export(tmp_path, {"date": "2026-07-09", "sleep_samples": lines})
+    export_dir = _write_export(tmp_path, {"date": "2026-07-09", "sleep": lines})
     chunks = _get_chunks(export_dir)
     assert len(chunks) == 1
     assert chunks[0].text == "[2026-07-09 02:41] Sleep: 1h total — Core 1h."
 
 
-def test_sleep_samples_accepts_json_array_of_lines(tmp_path):
+def test_legacy_sleep_samples_key_still_parses(tmp_path):
+    lines = "2026-07-08T01:14:00-04:00,2026-07-08T02:14:00-04:00,Core"
+    export_dir = _write_export(tmp_path, {"date": "2026-07-08", "sleep_samples": lines})
+    chunks = _get_chunks(export_dir)
+    assert len(chunks) == 1
+    assert chunks[0].metadata["kind"] == "sleep"
+
+
+def test_sleep_accepts_json_array_of_lines(tmp_path):
     export_dir = _write_export(tmp_path, {
         "date": "2026-07-08",
-        "sleep_samples": [
+        "sleep": [
             "2026-07-08T01:14:00-04:00,2026-07-08T02:14:00-04:00,Core",
             "2026-07-08T02:14:00-04:00,2026-07-08T02:44:00-04:00,Deep",
         ],

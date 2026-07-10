@@ -43,10 +43,12 @@ class IPhoneExportSource:
             log.warning(f"  iphone_export: {path} says date={data['date']}, trusting filename")
 
         chunks = []
-        if "sleep" in data:
-            chunks.extend(self._sleep_chunks(data["sleep"]))
-        elif "sleep_samples" in data:
-            chunks.extend(self._sleep_samples_chunks(data["sleep_samples"]))
+        # "sleep_samples" is the legacy field name from the first Shortcut build
+        sleep = data.get("sleep", data.get("sleep_samples"))
+        if isinstance(sleep, dict):
+            chunks.extend(self._sleep_chunks(sleep))
+        elif isinstance(sleep, (str, list)):
+            chunks.extend(self._sleep_samples_chunks(sleep))
         if "vitals" in data:
             chunks.extend(self._vitals_chunks(data["vitals"], start))
         if "activity" in data:
