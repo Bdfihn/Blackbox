@@ -71,6 +71,41 @@ def test_sleep_with_zero_total_is_skipped(tmp_path):
     assert _get_chunks(export_dir) == []
 
 
+def test_sleep_samples_lines_aggregate_into_sleep_chunk(tmp_path):
+    lines = "\n".join([
+        "2026-07-08T01:14:00-04:00,2026-07-08T03:29:00-04:00,Core",
+        "2026-07-08T03:29:00-04:00,2026-07-08T04:10:00-04:00,Deep",
+        "2026-07-08T04:10:00-04:00,2026-07-08T04:39:00-04:00,REM",
+        "2026-07-08T04:39:00-04:00,2026-07-08T07:35:00-04:00,Awake",
+    ])
+    export_dir = _write_export(tmp_path, {"date": "2026-07-08", "sleep_samples": lines})
+    chunks = _get_chunks(export_dir)
+    assert len(chunks) == 1
+    c = chunks[0]
+    assert c.text == ("[2026-07-08 01:14] Sleep: 3h 25m total — Core 2h 15m, Deep 41m, "
+                      "REM 29m, awake 2h 56m.")
+    assert c.metadata["kind"] == "sleep"
+    assert c.total_secs == (135 + 41 + 29) * 60
+
+
+def test_sleep_samples_skips_malformed_lines_and_unknown_stages(tmp_path):
+    lines = "\n".join([
+        "2026-07-08T01:14:00-04:00,2026-07-08T02:14:00-04:00,Core",
+        "not,a,valid,line",
+        "garbage",
+        "2026-07-08T02:14:00-04:00,2026-07-08T03:14:00-04:00,In Bed",
+    ])
+    export_dir = _write_export(tmp_path, {"date": "2026-07-08", "sleep_samples": lines})
+    chunks = _get_chunks(export_dir)
+    assert len(chunks) == 1
+    assert chunks[0].text == "[2026-07-08 01:14] Sleep: 1h total — Core 1h."
+
+
+def test_sleep_samples_with_no_valid_lines_emits_nothing(tmp_path):
+    export_dir = _write_export(tmp_path, {"date": "2026-07-08", "sleep_samples": "Core\nDeep\nAwake"})
+    assert _get_chunks(export_dir) == []
+
+
 def test_vitals_chunk_matches_backup_format(tmp_path):
     export_dir = _write_export(tmp_path, {
         "date": "2026-07-08",

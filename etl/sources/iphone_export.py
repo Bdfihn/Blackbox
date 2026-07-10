@@ -40,6 +40,8 @@ class IPhoneExportSource:
         chunks = []
         if "sleep" in data:
             chunks.extend(self._sleep_chunks(data["sleep"]))
+        elif "sleep_samples" in data:
+            chunks.extend(self._sleep_samples_chunks(data["sleep_samples"]))
         if "vitals" in data:
             chunks.extend(self._vitals_chunks(data["vitals"], start))
         if "activity" in data:
@@ -54,15 +56,48 @@ class IPhoneExportSource:
         return datetime.fromisoformat(iso).astimezone(self._local_tz)
 
     def _sleep_chunks(self, sleep: dict) -> list[Chunk]:
-        core_s = sleep.get("core_min", 0) * 60
-        deep_s = sleep.get("deep_min", 0) * 60
-        rem_s = sleep.get("rem_min", 0) * 60
-        awake_s = sleep.get("awake_min", 0) * 60
+        stage_secs = {
+            stage: sleep.get(f"{stage}_min", 0) * 60
+            for stage in ("core", "deep", "rem", "awake")
+        }
+        if "start" not in sleep:
+            return []
+        return self._build_sleep_chunk(
+            self._ts(sleep["start"]), stage_secs, sleep.get("resp_rate_avg"))
+
+    def _sleep_samples_chunks(self, raw: str) -> list[Chunk]:
+        """Aggregate raw per-sample lines ("startISO,endISO,stage") into one chunk."""
+        stage_secs: dict[str, float] = {}
+        earliest = None
+        for line in raw.strip().splitlines():
+            try:
+                start_s, end_s, stage = line.strip().split(",")
+                start = datetime.fromisoformat(start_s)
+                end = datetime.fromisoformat(end_s)
+            except ValueError:
+                log.warning(f"  iphone_export: bad sleep sample line: {line!r}")
+                continue
+            key = stage.strip().lower()
+            if key not in ("core", "deep", "rem", "awake"):
+                log.warning(f"  iphone_export: unknown sleep stage: {stage!r}")
+                continue
+            stage_secs[key] = stage_secs.get(key, 0) + (end - start).total_seconds()
+            if earliest is None or start < earliest:
+                earliest = start
+        if earliest is None:
+            return []
+        return self._build_sleep_chunk(earliest.astimezone(self._local_tz), stage_secs, None)
+
+    def _build_sleep_chunk(self, ts: datetime, stage_secs: dict,
+                           resp_rate_avg: float | None) -> list[Chunk]:
+        core_s = stage_secs.get("core", 0)
+        deep_s = stage_secs.get("deep", 0)
+        rem_s = stage_secs.get("rem", 0)
+        awake_s = stage_secs.get("awake", 0)
         total_s = core_s + deep_s + rem_s  # exclude awake from "sleep"
         if not total_s:
             return []
 
-        ts = self._ts(sleep["start"])
         parts = []
         if core_s:  parts.append(f"Core {fmt_duration(core_s)}")
         if deep_s:  parts.append(f"Deep {fmt_duration(deep_s)}")
@@ -72,8 +107,8 @@ class IPhoneExportSource:
             f"[{ts.strftime('%Y-%m-%d %H:%M')}] "
             f"Sleep: {fmt_duration(total_s)} total — {', '.join(parts)}."
         )
-        if sleep.get("resp_rate_avg"):
-            text += f" Avg respiratory rate: {sleep['resp_rate_avg']:.1f} breaths/min."
+        if resp_rate_avg:
+            text += f" Avg respiratory rate: {resp_rate_avg:.1f} breaths/min."
 
         return [Chunk(
             window_start=ts.isoformat(),

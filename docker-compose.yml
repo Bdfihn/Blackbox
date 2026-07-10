@@ -34,8 +34,8 @@ services:
       - OLLAMA_PORT=11434
       - ACTIVITYWATCH_HOST=host.docker.internal
       - ACTIVITYWATCH_PORT=5600
-      - TIMEZONE=America/New_York
-      - TZ=America/New_York
+      - TIMEZONE=America/Chicago
+      - TZ=America/Chicago
       - IPHONE_BACKUP_PATH=/app/iphone_backup
       - IPHONE_BACKUP_PATH2=/app/iphone_backup2
       - IPHONE_EXPORT_PATH=/app/iphone_export
@@ -57,6 +57,8 @@ services:
       - ./health_export:/app/health_export
     environment:
       - HEALTH_EXPORT_TOKEN=${HEALTH_EXPORT_TOKEN:-}
+      - TIMEZONE=America/Chicago
+      - TZ=America/Chicago
 
   query:
     build:
