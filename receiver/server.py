@@ -8,7 +8,7 @@ import logging
 import os
 import re
 import zoneinfo
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from flask import Flask, jsonify, request
@@ -24,6 +24,14 @@ TOKEN = os.getenv("HEALTH_EXPORT_TOKEN", "")
 LOCAL_TZ = zoneinfo.ZoneInfo(os.getenv("TIMEZONE", "America/New_York"))
 
 _DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+_DAY_START_HOUR = 4  # logical days run 04:00 → 04:00, matching the ETL
+
+
+def _logical_date(now: datetime) -> str:
+    """The logical day a post at `now` belongs to: before 04:00 is still 'yesterday'."""
+    if now.hour < _DAY_START_HOUR:
+        now -= timedelta(days=1)
+    return now.strftime("%Y-%m-%d")
 
 
 @app.route("/healthz", methods=["GET"])
@@ -38,8 +46,8 @@ def _find_date() -> str:
        choice — scan values instead of guessing the name).
     2. A YYYY-MM-DD substring in the body's "date"/"Date" field. Shortcuts
        serializes Current Date in locale format, so this often fails.
-    3. The server's own date — the automation fires the evening of the day
-       it covers, so arrival date and logical date coincide.
+    3. The server's own logical date — the automation fires between the
+       evening and the 04:00 boundary of the day it covers.
     """
     for _, value in request.headers.items():
         if _DATE_RE.fullmatch(value.strip()):
@@ -51,7 +59,7 @@ def _find_date() -> str:
                 match = _DATE_RE.search(value)
                 if match:
                     return match.group()
-    return datetime.now(LOCAL_TZ).strftime("%Y-%m-%d")
+    return _logical_date(datetime.now(LOCAL_TZ))
 
 
 def _body_bytes() -> bytes:

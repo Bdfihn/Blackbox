@@ -8,11 +8,16 @@ chunks in the same text formats the backup-based source produced.
 import json
 import logging
 import os
+import re
 from datetime import datetime
 
 from .base import Chunk, fmt_duration
 
 log = logging.getLogger(__name__)
+
+# Shortcuts' default date rendering, e.g. "Jul 9, 2026 at 2:41 AM"
+_LOCALE_DT_RE = re.compile(r"[A-Z][a-z]{2} \d{1,2}, \d{4} at \d{1,2}:\d{2} [AP]M")
+_LOCALE_DT_FMT = "%b %d, %Y at %I:%M %p"
 
 
 class IPhoneExportSource:
@@ -76,16 +81,11 @@ class IPhoneExportSource:
         stage_secs: dict[str, float] = {}
         earliest = None
         for line in raw.strip().splitlines():
-            # Comma-separated per the contract, but tolerate spaces — the
-            # separator is hand-typed between variable pills in Shortcuts.
-            parts = line.strip().split(",") if "," in line else line.strip().split(None, 2)
-            try:
-                start_s, end_s, stage = parts
-                start = datetime.fromisoformat(start_s.strip())
-                end = datetime.fromisoformat(end_s.strip())
-            except ValueError:
+            parsed = self._parse_sample_line(line)
+            if parsed is None:
                 log.warning(f"  iphone_export: bad sleep sample line: {line!r}")
                 continue
+            start, end, stage = parsed
             key = stage.strip().lower()
             if key not in ("core", "deep", "rem", "awake"):
                 log.warning(f"  iphone_export: unknown sleep stage: {stage!r}")
@@ -96,6 +96,29 @@ class IPhoneExportSource:
         if earliest is None:
             return []
         return self._build_sleep_chunk(earliest.astimezone(self._local_tz), stage_secs, None)
+
+    def _parse_sample_line(self, line: str) -> tuple[datetime, datetime, str] | None:
+        """Parse one sample line into (start, end, stage).
+
+        Handles Shortcuts' default locale rendering with the values jammed
+        together ("Jul 9, 2026 at 2:41 AMJul 9, 2026 at 2:53 AMCore" —
+        no separators, no offsets, so times are taken as local), and the
+        ISO contract form "startISO,endISO,stage" (comma- or space-separated).
+        """
+        line = line.replace(" ", " ").strip()  # narrow no-break space before AM/PM
+
+        matches = list(_LOCALE_DT_RE.finditer(line))
+        if len(matches) >= 2:
+            start = datetime.strptime(matches[0].group(), _LOCALE_DT_FMT).replace(tzinfo=self._local_tz)
+            end = datetime.strptime(matches[1].group(), _LOCALE_DT_FMT).replace(tzinfo=self._local_tz)
+            return start, end, line[matches[1].end():].strip(" ,")
+
+        parts = line.split(",") if "," in line else line.split(None, 2)
+        try:
+            start_s, end_s, stage = parts
+            return datetime.fromisoformat(start_s.strip()), datetime.fromisoformat(end_s.strip()), stage
+        except ValueError:
+            return None
 
     def _build_sleep_chunk(self, ts: datetime, stage_secs: dict,
                            resp_rate_avg: float | None) -> list[Chunk]:

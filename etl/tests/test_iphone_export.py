@@ -117,6 +117,25 @@ def test_sleep_samples_accepts_space_separated_lines(tmp_path):
     assert chunks[0].text == "[2026-07-08 01:14] Sleep: 1h total — Core 1h."
 
 
+def test_sleep_samples_accepts_shortcuts_locale_datetime_lines(tmp_path):
+    lines = "\n".join([
+        "Jul 9, 2026 at 2:41 AMJul 9, 2026 at 2:53 AMCore",
+        "Jul 9, 2026 at 2:53 AMJul 9, 2026 at 3:02 AMDeep",
+    ])
+    export_dir = _write_export(tmp_path, {"date": "2026-07-09", "sleep_samples": lines})
+    chunks = _get_chunks(export_dir)
+    assert len(chunks) == 1
+    assert chunks[0].text == "[2026-07-09 02:41] Sleep: 21m total — Core 12m, Deep 9m."
+
+
+def test_sleep_samples_locale_lines_with_narrow_no_break_space(tmp_path):
+    lines = "Jul 9, 2026 at 2:41 AMJul 9, 2026 at 3:41 AMCore"
+    export_dir = _write_export(tmp_path, {"date": "2026-07-09", "sleep_samples": lines})
+    chunks = _get_chunks(export_dir)
+    assert len(chunks) == 1
+    assert chunks[0].text == "[2026-07-09 02:41] Sleep: 1h total — Core 1h."
+
+
 def test_sleep_samples_accepts_json_array_of_lines(tmp_path):
     export_dir = _write_export(tmp_path, {
         "date": "2026-07-08",

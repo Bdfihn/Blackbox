@@ -54,13 +54,20 @@ def test_post_overwrites_existing_file(client, tmp_path):
 
 
 def test_post_locale_date_falls_back_to_server_date(client, tmp_path):
-    from datetime import datetime
-
     resp = client.post("/health", json={"Date": "Jul 9, 2026 at 11:41 PM", "Sleep": ["sample"]})
     assert resp.status_code == 200
-    today = datetime.now(server.LOCAL_TZ).strftime("%Y-%m-%d")
+    today = server._logical_date(__import__("datetime").datetime.now(server.LOCAL_TZ))
     assert resp.get_json() == {"stored": today}
     assert (tmp_path / f"{today}.json").exists()
+
+
+def test_logical_date_rolls_back_to_previous_day_before_4am():
+    from datetime import datetime
+
+    assert server._logical_date(datetime(2026, 7, 10, 0, 25, tzinfo=server.LOCAL_TZ)) == "2026-07-09"
+    assert server._logical_date(datetime(2026, 7, 10, 3, 59, tzinfo=server.LOCAL_TZ)) == "2026-07-09"
+    assert server._logical_date(datetime(2026, 7, 10, 4, 0, tzinfo=server.LOCAL_TZ)) == "2026-07-10"
+    assert server._logical_date(datetime(2026, 7, 9, 23, 43, tzinfo=server.LOCAL_TZ)) == "2026-07-09"
 
 
 def test_post_iso_date_in_body_value_is_extracted(client, tmp_path):
