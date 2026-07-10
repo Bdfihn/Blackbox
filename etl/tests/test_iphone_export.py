@@ -1,6 +1,6 @@
 import json
 import zoneinfo
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from sources.iphone_export import IPhoneExportSource
@@ -253,6 +253,70 @@ def test_trailing_metrics_ignores_today_and_future(tmp_path):
     (tmp_path / "2026-07-08.json").write_text(json.dumps({"step": "2026-07-08T10:00:00-04:00,2026-07-08T10:30:00-04:00,9999"}), encoding="utf-8")
     src = IPhoneExportSource(str(tmp_path), LOCAL_TZ)
     assert src._trailing_metrics(_START) == []
+
+
+def _write_trailing_days(tmp_path, days, steps=5000, resting=60, hrv=50):
+    for offset in range(1, days + 1):
+        day = (_START - timedelta(days=offset)).strftime("%Y-%m-%d")
+        (tmp_path / f"{day}.json").write_text(json.dumps({
+            "step": f"{day}T10:00:00-04:00,{day}T10:30:00-04:00,{steps}",
+            "resting_hr": f"{day}T23:00:00-04:00,{day}T23:00:00-04:00,{resting}",
+            "hrv": f"{day}T23:00:00-04:00,{day}T23:00:00-04:00,{hrv}",
+        }), encoding="utf-8")
+
+
+def test_vitals_within_baseline_are_diary_suppressed(tmp_path):
+    _write_trailing_days(tmp_path, 7)
+    export_dir = _write_export(tmp_path, {
+        "resting_hr": "2026-07-08T23:00:00-04:00,2026-07-08T23:00:00-04:00,61",
+        "hrv": "2026-07-08T23:00:00-04:00,2026-07-08T23:00:00-04:00,52",
+    })
+    chunks = _get_chunks(export_dir)
+    vitals = [c for c in chunks if c.metadata.get("kind") == "vitals"]
+    assert len(vitals) == 1
+    assert vitals[0].metadata["diary"] is False
+
+
+def test_vitals_deviating_over_ten_percent_stay_diary_visible(tmp_path):
+    _write_trailing_days(tmp_path, 7)
+    export_dir = _write_export(tmp_path, {
+        "resting_hr": "2026-07-08T23:00:00-04:00,2026-07-08T23:00:00-04:00,61",
+        "hrv": "2026-07-08T23:00:00-04:00,2026-07-08T23:00:00-04:00,38",  # 24% below 50
+    })
+    chunks = _get_chunks(export_dir)
+    vitals = [c for c in chunks if c.metadata.get("kind") == "vitals"]
+    assert len(vitals) == 1
+    assert "diary" not in vitals[0].metadata
+
+
+def test_vitals_with_insufficient_history_are_diary_suppressed(tmp_path):
+    _write_trailing_days(tmp_path, 3)
+    export_dir = _write_export(tmp_path, {
+        "hrv": "2026-07-08T23:00:00-04:00,2026-07-08T23:00:00-04:00,20",
+    })
+    chunks = _get_chunks(export_dir)
+    vitals = [c for c in chunks if c.metadata.get("kind") == "vitals"]
+    assert vitals[0].metadata["diary"] is False
+
+
+def test_steps_total_compared_against_baseline(tmp_path):
+    _write_trailing_days(tmp_path, 7, steps=5000)
+    export_dir = _write_export(tmp_path, {
+        "step": "2026-07-08T10:00:00-04:00,2026-07-08T10:30:00-04:00,9000",
+    })
+    chunks = _get_chunks(export_dir)
+    total_lines = [c.text for c in chunks if "Steps:" in c.text]
+    assert total_lines == ["[2026-07-08] Steps: 9,000 total — well above recent average (5,000/day)."]
+
+
+def test_typical_steps_total_gets_no_comparison(tmp_path):
+    _write_trailing_days(tmp_path, 7, steps=5000)
+    export_dir = _write_export(tmp_path, {
+        "step": "2026-07-08T10:00:00-04:00,2026-07-08T10:30:00-04:00,5500",
+    })
+    chunks = _get_chunks(export_dir)
+    total_lines = [c.text for c in chunks if "Steps:" in c.text]
+    assert total_lines == ["[2026-07-08] Steps: 5,500 total."]
 
 
 def test_chunks_sorted_by_window_start(tmp_path):

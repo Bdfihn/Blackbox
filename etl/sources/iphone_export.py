@@ -24,6 +24,7 @@ STEPS_DEVIATION = 0.30
 
 BASELINE_DAYS = 14
 BASELINE_MIN_DAYS = 7
+VITALS_DEVIATION = 0.10
 
 
 class IPhoneExportSource:
@@ -41,17 +42,19 @@ class IPhoneExportSource:
         if data.get("date") not in (None, date_str):
             log.warning(f"  iphone_export: {date_str}.json says date={data['date']}, trusting filename")
 
+        trailing = self._trailing_metrics(start)
+
         chunks = []
         if "sleep" in data:
             chunks.extend(self._sleep_samples_chunks(data["sleep"]))
         vitals = self._extract_vitals(data)
         if vitals:
-            chunks.extend(self._vitals_chunks(vitals, start))
+            chunks.extend(self._vitals_chunks(vitals, start, trailing))
         if "activity" in data:
             hourly = self._hourly_steps_from_entries(data["activity"])
         else:
             hourly = self._hourly_steps_from_lines(data.get("step", data.get("steps")))
-        chunks.extend(self._steps_chunks(hourly, start, None))
+        chunks.extend(self._steps_chunks(hourly, start, self._baseline(trailing, "steps")))
         chunks.sort(key=lambda c: c.window_start)
         log.info(f"  iphone_export: {len(chunks)} chunks")
         return chunks
@@ -248,7 +251,21 @@ class IPhoneExportSource:
             })
         return metrics
 
-    def _vitals_chunks(self, vitals: dict, window_start: datetime) -> list[Chunk]:
+    @staticmethod
+    def _baseline(metrics: list[dict], key: str) -> float | None:
+        values = [m[key] for m in metrics if m[key]]
+        if len(values) < BASELINE_MIN_DAYS:
+            return None
+        return sum(values) / len(values)
+
+    def _notable(self, vitals: dict, trailing: list[dict]) -> bool:
+        for key, today in (("resting_hr", vitals.get("resting_hr")), ("hrv_ms", vitals.get("hrv_ms"))):
+            baseline = self._baseline(trailing, key)
+            if today and baseline and abs(today - baseline) / baseline > VITALS_DEVIATION:
+                return True
+        return False
+
+    def _vitals_chunks(self, vitals: dict, window_start: datetime, trailing: list[dict]) -> list[Chunk]:
         parts = []
         if vitals.get("resting_hr"):
             parts.append(f"resting HR {round(vitals['resting_hr'])}bpm")
@@ -265,12 +282,16 @@ class IPhoneExportSource:
         if not parts:
             return []
 
+        metadata = {"kind": "vitals"}
+        if not self._notable(vitals, trailing):
+            metadata["diary"] = False
+
         ts = self._ts(vitals["time"]) if vitals.get("time") else window_start
         return [Chunk(
             window_start=ts.isoformat(),
             text=f"[{ts.strftime('%Y-%m-%d %H:%M')}] Daily vitals: {', '.join(parts)}.",
             apps=[], total_secs=0, source="iphone_export",
-            metadata={"kind": "vitals"},
+            metadata=metadata,
         )]
 
 
