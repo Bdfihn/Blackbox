@@ -46,6 +46,18 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
+  receiver:
+    build:
+      context: ./receiver
+    container_name: blackbox-receiver
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./health_export:/app/health_export
+    environment:
+      - HEALTH_EXPORT_TOKEN=${HEALTH_EXPORT_TOKEN:-}
+
   query:
     build:
       context: ./query

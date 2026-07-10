@@ -15,10 +15,11 @@ Logs everything (PC activity, iPhone, wearables, audio), embeds it into a local 
 
 ## Architecture
 
-Three Docker services (`docker-compose.yml`):
+Four Docker services (`docker-compose.yml`):
 
 - **qdrant** — vector store for activity chunks
 - **etl** — batch job: pulls every source for one logical day (04:00 → 04:00), embeds chunks with `nomic-embed-text` via Ollama, upserts to Qdrant, and writes `diary/YYYY-MM-DD.md` with `gemma4:e4b`
+- **receiver** — accepts the iPhone's nightly health export (`POST /health` on port 8081) and stores it in `health_export/` for the ETL
 - **query** — Flask RAG API and web UI at http://localhost:8080
 
 Ollama runs in its own container on the host. The ETL is idempotent: re-running a date replaces that date's chunks and diary entry.
@@ -38,6 +39,7 @@ Secrets live in an untracked `.env`:
 
 - `IPHONE_BACKUP_PASSWORD` — password for the encrypted iOS backup
 - `SELF_PHONE` — own number, filtered out of social contact lists
+- `HEALTH_EXPORT_TOKEN` — bearer token the receiver requires on health export posts (optional; unauthenticated if unset)
 
 Host paths for the iPhone backup, git repos, and Claude Code transcripts are mounted read-only in `docker-compose.yml`.
 
@@ -46,4 +48,5 @@ Host paths for the iPhone backup, git repos, and Claude Code transcripts are mou
 ```
 docker build -t blackbox-etl-test -f etl/Dockerfile.test etl && docker run --rm blackbox-etl-test
 docker build -t blackbox-query-test -f query/Dockerfile.test query && docker run --rm blackbox-query-test
+docker build -t blackbox-receiver-test -f receiver/Dockerfile.test receiver && docker run --rm blackbox-receiver-test
 ```
