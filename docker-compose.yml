@@ -24,6 +24,7 @@ services:
       - ./diary:/app/diary
       - "C:/Users/Bdfihn/Code:/app/git_repos:ro"
       - "C:/Users/Bdfihn/.claude/projects:/app/claude_transcripts:ro"
+      - "C:/Users/Bdfihn/.gemini/antigravity-cli:/app/agy:ro"
       - ./health_export:/app/iphone_export:ro
     environment:
       - QDRANT_HOST=blackbox-qdrant
@@ -37,6 +38,7 @@ services:
       - IPHONE_EXPORT_PATH=/app/iphone_export
       - GIT_REPOS_ROOT=/app/git_repos
       - CLAUDE_TRANSCRIPTS=/app/claude_transcripts
+      - AGY_ROOT=/app/agy
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

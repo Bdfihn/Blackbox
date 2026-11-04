@@ -5,7 +5,13 @@ import zoneinfo
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .base import Chunk, fmt_duration
+from .base import (
+    Chunk,
+    fmt_duration,
+    _trim_user_text,
+    _MAX_USER_CHARS,
+    _MAX_ASSISTANT_CHARS,
+)
 
 log = logging.getLogger(__name__)
 
@@ -31,30 +37,10 @@ _CLAUDE_CODE_SYSTEM_TAGS = frozenset({
 
 _SYSTEM_TAG_RE = re.compile(r"^<([a-zA-Z][a-zA-Z0-9_-]*)")
 
-# Matches lines that are clearly terminal/build output rather than human text.
-# Docker build steps (#N ...), PowerShell prompts (PS C:\...), shell prompts ($ ).
-_BUILD_OUTPUT_START_RE = re.compile(r"^(#\d+[\s\[]|PS [A-Z]:\\|> |\$ )")
-
-# Marks where pasted terminal output begins inside an otherwise human message.
-_BUILD_OUTPUT_INLINE_RE = re.compile(r"\n(?:#\d+[\s\[]|PS [A-Z]:\\)")
-
-_MAX_USER_CHARS = 400
-_MAX_ASSISTANT_CHARS = 600
-
 
 def _is_system_message(text: str) -> bool:
     m = _SYSTEM_TAG_RE.match(text)
     return m is not None and m.group(1) in _CLAUDE_CODE_SYSTEM_TAGS
-
-
-def _trim_user_text(text: str) -> str:
-    """Strip pasted terminal/build output and truncate to a reasonable length."""
-    if _BUILD_OUTPUT_START_RE.match(text):
-        return ""
-    m = _BUILD_OUTPUT_INLINE_RE.search(text)
-    if m:
-        text = text[: m.start()].strip()
-    return text[:_MAX_USER_CHARS]
 
 
 def _clean_user_text(text: str) -> str:

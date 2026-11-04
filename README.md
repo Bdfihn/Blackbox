@@ -11,6 +11,7 @@ Logs everything (PC activity, iPhone, wearables, audio), embeds it into a local 
 | ActivityWatch | Active PC window time, clipped to not-AFK intervals |
 | Git | Commits across all local repos |
 | Claude Code | Session transcripts, summarized by a local LLM |
+| Antigravity | Session transcripts, summarized by a local LLM |
 | iPhone health export | Sleep stages, hourly steps, resting HR, and HRV, POSTed nightly by a Shortcuts automation |
 
 ## Architecture
@@ -39,7 +40,7 @@ Secrets live in an untracked `.env`:
 
 - `HEALTH_EXPORT_TOKEN` — bearer token the receiver requires on health export posts (optional; unauthenticated if unset)
 
-Host paths for git repos and Claude Code transcripts are mounted read-only in `docker-compose.yml`; the receiver writes health exports to `health_export/`, which the ETL mounts read-only at `IPHONE_EXPORT_PATH`.
+Host paths for git repos, Claude Code transcripts, and Antigravity transcripts are mounted read-only in `docker-compose.yml`; the receiver writes health exports to `health_export/`, which the ETL mounts read-only at `IPHONE_EXPORT_PATH`.
 
 ## Tests
 

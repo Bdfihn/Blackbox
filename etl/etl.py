@@ -17,6 +17,7 @@ from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, Fi
 
 from sources import (
     ActivityWatchSource,
+    AgySource,
     ClaudeCodeSource,
     DataSource,
     GitSource,
@@ -36,6 +37,7 @@ LOCAL_TZ           = zoneinfo.ZoneInfo(os.getenv("TIMEZONE", "America/New_York")
 AW_BASE            = f"http://{os.getenv('ACTIVITYWATCH_HOST', 'host.docker.internal')}:{os.getenv('ACTIVITYWATCH_PORT', 5600)}/api/0"
 GIT_REPOS_ROOT     = os.getenv("GIT_REPOS_ROOT", "")
 CLAUDE_TRANSCRIPTS = os.getenv("CLAUDE_TRANSCRIPTS", "")
+AGY_ROOT           = os.getenv("AGY_ROOT", "")
 IPHONE_EXPORT_PATH = os.getenv("IPHONE_EXPORT_PATH", "")
 QDRANT_HOST        = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT        = int(os.getenv("QDRANT_PORT", 6333))
@@ -143,7 +145,7 @@ Rules:
 - Follow the timeline chronologically and group related activity into natural blocks.
 - Use 12-hour AM/PM time format, but only anchor specific times when they matter.
 - For social activity: describe who you spent time with and how (texting, calls, in person) — don't list every individual message. Names are better than phone numbers.
-- For coding/work and Claude Code sessions: describe what was being built or fixed at a high level, in plain language. Do NOT reproduce commit messages verbatim.
+- For coding/work, Claude Code, and Antigravity sessions: describe what was being built or fixed at a high level, in plain language. Do NOT reproduce commit messages verbatim.
 {health_rules_text}
 - Allocate paragraph space proportional to how much time was actually spent on each activity."""
 
@@ -196,6 +198,8 @@ def run_etl(target_date: datetime | None = None):
         sources.append(GitSource(GIT_REPOS_ROOT, LOCAL_TZ))
     if CLAUDE_TRANSCRIPTS:
         sources.append(ClaudeCodeSource(CLAUDE_TRANSCRIPTS, LOCAL_TZ, ollama_client, LLM_MODEL, LLM_NUM_CTX))
+    if AGY_ROOT:
+        sources.append(AgySource(AGY_ROOT, LOCAL_TZ, ollama_client, LLM_MODEL, LLM_NUM_CTX))
     if IPHONE_EXPORT_PATH:
         sources.append(IPhoneExportSource(IPHONE_EXPORT_PATH, LOCAL_TZ))
 

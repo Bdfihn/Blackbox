@@ -1,8 +1,25 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+import re
 from typing import Protocol
 
 _DAY_START_HOUR = 4  # Day starts/ends at 4 AM
+
+_BUILD_OUTPUT_START_RE = re.compile(r"^(#\d+[\s\[]|PS [A-Z]:\\|> |\$ )")
+_BUILD_OUTPUT_INLINE_RE = re.compile(r"\n(?:#\d+[\s\[]|PS [A-Z]:\\)")
+
+_MAX_USER_CHARS = 400
+_MAX_ASSISTANT_CHARS = 600
+
+
+def _trim_user_text(text: str) -> str:
+    """Strip pasted terminal/build output and truncate to a reasonable length."""
+    if _BUILD_OUTPUT_START_RE.match(text):
+        return ""
+    m = _BUILD_OUTPUT_INLINE_RE.search(text)
+    if m:
+        text = text[: m.start()].strip()
+    return text[:_MAX_USER_CHARS]
 
 
 def day_bounds(date: datetime) -> tuple[datetime, datetime]:
