@@ -11,13 +11,17 @@ log = logging.getLogger(__name__)
 
 EPISODE_GAP_SECS = 120
 EPISODE_MIN_SECS = 60
+BRIEF_MAX_ITEMS = 10
+BRIEF_MAX_SPAN_SECS = 900  # 15 minutes
 
 _BROWSER_SUFFIXES = {
     "Google Chrome": "Chrome",
     "Mozilla Firefox": "Firefox",
     "Microsoft Edge": "Edge",
+    "Zen Browser": "Zen",
 }
 _SITE_SUFFIXES = ("YouTube",)
+_DASHES = (" - ", " — ", " – ")
 
 
 def normalize_title(app: str, title: str) -> tuple[str, str]:
@@ -28,17 +32,25 @@ def normalize_title(app: str, title: str) -> tuple[str, str]:
     """
     label = app[:-4] if app.lower().endswith(".exe") else app
     for browser, short in _BROWSER_SUFFIXES.items():
-        suffix = f" - {browser}"
-        if title.endswith(suffix):
-            title = title[: -len(suffix)]
-            label = short
+        matched = False
+        for dash in _DASHES:
+            suffix = f"{dash}{browser}"
+            if title.endswith(suffix):
+                title = title[:-len(suffix)]
+                label = short
+                matched = True
+                break
+        if matched:
             break
+
     for site in _SITE_SUFFIXES:
-        suffix = f" - {site}"
-        if title.endswith(suffix):
-            title = title[: -len(suffix)]
-            label = site
-            break
+        for dash in _DASHES:
+            suffix = f"{dash}{site}"
+            if title.endswith(suffix):
+                title = title[:-len(suffix)]
+                label = site
+                break
+
     return title.strip(), label
 
 # aw-server rejects requests whose Host header isn't localhost (DNS-rebinding
@@ -221,11 +233,21 @@ class ActivityWatchSource:
             ))
             brief.clear()
 
+        prev_ep: _Episode | None = None
         for ep in episodes:
             if ep.active_secs < EPISODE_MIN_SECS:
+                if prev_ep and (ep.start - prev_ep.end).total_seconds() > EPISODE_GAP_SECS:
+                    flush_brief()
+                elif brief and (
+                    (ep.end - brief[0].start).total_seconds() > BRIEF_MAX_SPAN_SECS
+                    or len({e.title or e.label for e in brief}) >= BRIEF_MAX_ITEMS
+                ):
+                    flush_brief()
                 brief.append(ep)
+                prev_ep = ep
                 continue
             flush_brief()
+            prev_ep = ep
             span = f"{ep.start.strftime('%Y-%m-%d %H:%M')}–{ep.end.strftime('%H:%M')}"
             chunks.append(Chunk(
                 window_start=ep.start.isoformat(),

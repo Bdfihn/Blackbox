@@ -174,6 +174,58 @@ def test_short_episodes_fold_into_briefly_line(monkeypatch):
     assert 'YouTube: "Skirk vs Ball in 66s" (5m)' in chunks[1].text
 
 
+def test_normalize_title_strips_em_dash_browser_and_site_suffix():
+    title, label = normalize_title(
+        "zen.exe",
+        "Inbox - albertzz@bu.edu - Boston University Mail — Zen Browser",
+    )
+    assert title == "Inbox - albertzz@bu.edu - Boston University Mail"
+    assert label == "Zen"
+
+    title2, label2 = normalize_title(
+        "zen.exe",
+        "Did I run from the police? - YouTube — Zen Browser",
+    )
+    assert title2 == "Did I run from the police?"
+    assert label2 == "YouTube"
+
+    title3, label3 = normalize_title(
+        "firefox.exe",
+        "Page 29 » nhentai — Mozilla Firefox",
+    )
+    assert title3 == "Page 29 » nhentai"
+    assert label3 == "Firefox"
+
+
+def test_brief_streak_splits_on_gap_over_tolerance(monkeypatch):
+    src = _source(monkeypatch, {
+        WINDOW_BUCKET: [
+            _event("2026-07-01T10:00:00Z", 20, app="zen.exe", title="Doc 1 — Zen Browser"),
+            # 180s gap > EPISODE_GAP_SECS (120s)
+            _event("2026-07-01T10:03:20Z", 20, app="zen.exe", title="Doc 2 — Zen Browser"),
+        ],
+    })
+    chunks = src.get_chunks(START, END)
+    assert len(chunks) == 2
+    assert "Doc 1" in chunks[0].text
+    assert "Doc 2" in chunks[1].text
+
+
+def test_brief_streak_splits_on_max_items(monkeypatch):
+    events = [
+        _event(f"2026-07-01T10:{i:02d}:00Z", 20, app="zen.exe", title=f"Doc {i} — Zen Browser")
+        for i in range(12)
+    ]
+    src = _source(monkeypatch, {WINDOW_BUCKET: events})
+    chunks = src.get_chunks(START, END)
+    # 12 items should split into 2 chunks because max_items is 10
+    assert len(chunks) == 2
+    assert "Doc 0" in chunks[0].text
+    assert "Doc 9" in chunks[0].text
+    assert "Doc 10" in chunks[1].text
+    assert "Doc 11" in chunks[1].text
+
+
 def test_title_equal_to_label_renders_label_only(monkeypatch):
     src = _source(monkeypatch, {
         WINDOW_BUCKET: [_event("2026-07-01T10:00:00Z", 300, app="Genshin Impact.exe", title="Genshin Impact")],

@@ -65,10 +65,25 @@ def ensure_collection():
         log.info(f"Created Qdrant collection '{COLLECTION}'")
 
 
+MAX_EMBED_CHARS = 4000
+
+
 def embed(text: str) -> list[float]:
     """Embed a string using nomic-embed-text via Ollama."""
-    response = ollama_client.embeddings(model=EMBED_MODEL, prompt=text)
-    return response["embedding"]
+    if len(text) > MAX_EMBED_CHARS:
+        text = text[:MAX_EMBED_CHARS]
+    try:
+        response = ollama_client.embeddings(model=EMBED_MODEL, prompt=text)
+        return response["embedding"]
+    except Exception as exc:
+        if "exceeds the context length" in str(exc).lower() and len(text) > 1000:
+            log.warning(
+                f"Embedding input exceeded context length ({len(text)} chars); "
+                f"retrying with 1000-char prefix."
+            )
+            response = ollama_client.embeddings(model=EMBED_MODEL, prompt=text[:1000])
+            return response["embedding"]
+        raise
 
 
 def upsert_chunks(chunks: list[Chunk], date_str: str):
