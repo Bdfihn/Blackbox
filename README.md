@@ -12,15 +12,14 @@ Logs everything (PC activity, iPhone, wearables, audio), embeds it into a local 
 | Git | Commits across all local repos |
 | Claude Code | Session transcripts, summarized by a local LLM |
 | Antigravity | Session transcripts, summarized by a local LLM |
-| iPhone health export | Sleep stages, hourly steps, resting HR, and HRV, POSTed nightly by a Shortcuts automation |
+| iPhone | Sleep stages, hourly steps, resting HR, HRV, workouts, calls, and texts from local iOS backup |
 
 ## Architecture
 
-Four Docker services (`docker-compose.yml`):
+Three Docker services (`docker-compose.yml`):
 
 - **qdrant** — vector store for activity chunks
 - **etl** — batch job: pulls every source for one logical day (04:00 → 04:00), embeds chunks with `nomic-embed-text` via Ollama, upserts to Qdrant, and writes `diary/YYYY-MM-DD.md` with `gemma4:e4b`
-- **receiver** — accepts the iPhone's nightly health export (`POST /health` on port 8081) and stores it in `health_export/` for the ETL
 - **query** — Flask RAG API and web UI at http://localhost:8080
 
 Ollama runs in its own container on the host. The ETL is idempotent: re-running a date replaces that date's chunks and diary entry.
@@ -38,14 +37,14 @@ docker compose up -d query                           # web UI
 
 Secrets live in an untracked `.env`:
 
-- `HEALTH_EXPORT_TOKEN` — bearer token the receiver requires on health export posts (optional; unauthenticated if unset)
+- `IPHONE_BACKUP_PASSWORD` — password for encrypted iPhone local backup (optional if unencrypted)
+- `SELF_PHONE` — user's 10-digit phone number (used to distinguish self from contacts in message threads)
 
-Host paths for git repos, Claude Code transcripts, and Antigravity transcripts are mounted read-only in `docker-compose.yml`; the receiver writes health exports to `health_export/`, which the ETL mounts read-only at `IPHONE_EXPORT_PATH`.
+Host paths for git repos, Claude Code transcripts, Antigravity transcripts, and local iPhone backups are mounted read-only in `docker-compose.yml`.
 
 ## Tests
 
 ```
 docker build -t blackbox-etl-test -f etl/Dockerfile.test etl && docker run --rm blackbox-etl-test
 docker build -t blackbox-query-test -f query/Dockerfile.test query && docker run --rm blackbox-query-test
-docker build -t blackbox-receiver-test -f receiver/Dockerfile.test receiver && docker run --rm blackbox-receiver-test
 ```

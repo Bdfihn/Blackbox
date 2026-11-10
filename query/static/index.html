@@ -120,26 +120,6 @@
   .search-box button:hover { background: #3e3e3e; }
   .search-box button:disabled { opacity: 0.4; cursor: not-allowed; }
 
-  .suggestions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-bottom: 24px;
-  }
-
-  .suggestion {
-    background: #1a1a1a;
-    border: 1px solid #2a2a2a;
-    color: #888;
-    padding: 6px 12px;
-    border-radius: 20px;
-    font-size: 12px;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-
-  .suggestion:hover { border-color: #444; color: #ccc; }
-
   #result {
     flex: 1;
     overflow-y: auto;
@@ -394,14 +374,6 @@
       <button id="search-btn" onclick="doSearch()">Ask</button>
     </div>
 
-    <div class="suggestions">
-      <span class="suggestion" onclick="fillQ(this)">What did I work on yesterday?</span>
-      <span class="suggestion" onclick="fillQ(this)">When was I most productive this week?</span>
-      <span class="suggestion" onclick="fillQ(this)">How much time did I spend in VS Code today?</span>
-      <span class="suggestion" onclick="fillQ(this)">What was I doing at 3pm on Monday?</span>
-      <span class="suggestion" onclick="fillQ(this)">What were my biggest distractions this week?</span>
-    </div>
-
     <div id="result"></div>
   </div>
 
@@ -432,11 +404,6 @@
     document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     if (name === 'diary') loadDiaryList();
-  }
-
-  function fillQ(el) {
-    document.getElementById('question').value = el.textContent;
-    document.getElementById('question').focus();
   }
 
   document.getElementById('question').addEventListener('keydown', e => {

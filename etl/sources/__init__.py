@@ -3,7 +3,9 @@ from .activitywatch import ActivityWatchSource
 from .agy import AgySource
 from .claude_code import ClaudeCodeSource
 from .git import GitSource
-from .iphone_export import IPhoneExportSource
+from .iphone_backup import find_backup
+from .iphone_health import IPhoneHealthSource
+from .iphone_social import IPhoneSocialSource
 
 __all__ = [
     "Chunk",
@@ -15,5 +17,7 @@ __all__ = [
     "AgySource",
     "ClaudeCodeSource",
     "GitSource",
-    "IPhoneExportSource",
+    "IPhoneHealthSource",
+    "IPhoneSocialSource",
+    "find_backup",
 ]

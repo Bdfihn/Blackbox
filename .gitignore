@@ -1,7 +1,6 @@
 .env
 diary/
 docs/
-health_export/
 notes.txt
 __pycache__/
 *.pyc
