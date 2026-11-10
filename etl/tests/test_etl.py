@@ -102,27 +102,35 @@ def test_generate_diary_entry_sets_num_ctx_to_avoid_truncation(monkeypatch):
     assert mock_ollama.chat.call_args[1]["options"] == {"num_ctx": 32768}
 
 
-def test_embed_caps_at_max_embed_chars(monkeypatch):
+def test_embed_short_text_single_pass(monkeypatch):
     mock_ollama = MagicMock()
     mock_ollama.embeddings.return_value = {"embedding": [0.1, 0.2]}
     monkeypatch.setattr(etl, "ollama_client", mock_ollama)
 
-    huge_text = "a" * 10000
-    etl.embed(huge_text)
-    called_prompt = mock_ollama.embeddings.call_args[1]["prompt"]
-    assert len(called_prompt) == etl.MAX_EMBED_CHARS
+    vec = etl.embed("Short chunk text.")
+    assert vec == [0.1, 0.2]
+    assert mock_ollama.embeddings.call_count == 1
+    assert mock_ollama.embeddings.call_args[1]["prompt"] == "Short chunk text."
 
 
-def test_embed_retries_with_prefix_on_context_length_error(monkeypatch):
+def test_embed_chunks_and_pools_large_text_without_truncating(monkeypatch):
     mock_ollama = MagicMock()
-    mock_ollama.embeddings.side_effect = [
-        Exception("the input length exceeds the context length"),
-        {"embedding": [0.3, 0.4]},
-    ]
+    # Return valid vectors for any number of sub-chunks
+    mock_ollama.embeddings.side_effect = lambda **kwargs: {"embedding": [0.6, 0.8]}
     monkeypatch.setattr(etl, "ollama_client", mock_ollama)
 
-    vec = etl.embed("b" * 2000)
-    assert vec == [0.3, 0.4]
-    assert mock_ollama.embeddings.call_count == 2
-    retry_prompt = mock_ollama.embeddings.call_args_list[1][1]["prompt"]
-    assert len(retry_prompt) == 1000
+    # 3500 chars exceeds 2500 chunk limit, splitting into sub-chunks
+    part1 = "First part of the long text. " * 60
+    part2 = "Second part of the long text. " * 60
+    huge_text = f"{part1}\n{part2}"
+
+    vec = etl.embed(huge_text)
+    assert mock_ollama.embeddings.call_count >= 2
+    # Verify all parts of text were included across the sub-chunks (no truncation)
+    all_prompts = "".join(call[1]["prompt"] for call in mock_ollama.embeddings.call_args_list)
+    assert "First part" in all_prompts
+    assert "Second part" in all_prompts
+    # Verify vector is normalized to unit length
+    assert len(vec) == 2
+    mag = sum(x * x for x in vec)
+    assert abs(mag - 1.0) < 1e-5

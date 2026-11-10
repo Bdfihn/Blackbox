@@ -7,6 +7,7 @@ upserts to Qdrant, writes a diary .md file.
 import os
 import hashlib
 import logging
+import math
 import zoneinfo
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -65,25 +66,60 @@ def ensure_collection():
         log.info(f"Created Qdrant collection '{COLLECTION}'")
 
 
-MAX_EMBED_CHARS = 4000
+def _chunk_text_for_embedding(text: str, chunk_size: int = 2500, overlap: int = 200) -> list[str]:
+    """Split text into overlapping windows without cutting mid-word when possible."""
+    if len(text) <= chunk_size:
+        return [text]
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        if end < len(text):
+            break_pt = text.rfind("\n", start + chunk_size // 2, end)
+            if break_pt == -1:
+                break_pt = text.rfind(". ", start + chunk_size // 2, end)
+                if break_pt != -1:
+                    break_pt += 1
+            if break_pt == -1:
+                break_pt = text.rfind(" ", start + chunk_size // 2, end)
+            if break_pt != -1:
+                end = break_pt
+        chunk = text[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+        if end >= len(text):
+            break
+        start = max(start + 1, end - overlap)
+    return chunks or [text]
 
 
 def embed(text: str) -> list[float]:
-    """Embed a string using nomic-embed-text via Ollama."""
-    if len(text) > MAX_EMBED_CHARS:
-        text = text[:MAX_EMBED_CHARS]
-    try:
-        response = ollama_client.embeddings(model=EMBED_MODEL, prompt=text)
-        return response["embedding"]
-    except Exception as exc:
-        if "exceeds the context length" in str(exc).lower() and len(text) > 1000:
-            log.warning(
-                f"Embedding input exceeded context length ({len(text)} chars); "
-                f"retrying with 1000-char prefix."
-            )
-            response = ollama_client.embeddings(model=EMBED_MODEL, prompt=text[:1000])
+    """Embed a string using nomic-embed-text via Ollama.
+
+    If text exceeds the embedding model's context window, splits it into
+    overlapping sub-chunks, embeds each, and mean-pools (averages and normalizes)
+    the vectors so NO information is truncated or dropped.
+    """
+    if len(text) <= 2500:
+        try:
+            response = ollama_client.embeddings(model=EMBED_MODEL, prompt=text)
             return response["embedding"]
-        raise
+        except Exception as exc:
+            if "exceeds the context length" not in str(exc).lower():
+                raise
+
+    sub_chunks = _chunk_text_for_embedding(text, chunk_size=2000, overlap=200)
+    vectors: list[list[float]] = []
+    for sc in sub_chunks:
+        res = ollama_client.embeddings(model=EMBED_MODEL, prompt=sc)
+        vectors.append(res["embedding"])
+
+    dim = len(vectors[0])
+    avg_vec = [sum(v[i] for v in vectors) / len(vectors) for i in range(dim)]
+    norm = math.sqrt(sum(x * x for x in avg_vec))
+    if norm > 0:
+        avg_vec = [x / norm for x in avg_vec]
+    return avg_vec
 
 
 def upsert_chunks(chunks: list[Chunk], date_str: str):

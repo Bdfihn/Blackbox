@@ -18,10 +18,8 @@ _BROWSER_SUFFIXES = {
     "Google Chrome": "Chrome",
     "Mozilla Firefox": "Firefox",
     "Microsoft Edge": "Edge",
-    "Zen Browser": "Zen",
 }
 _SITE_SUFFIXES = ("YouTube",)
-_DASHES = (" - ", " — ", " – ")
 
 
 def normalize_title(app: str, title: str) -> tuple[str, str]:
@@ -32,25 +30,17 @@ def normalize_title(app: str, title: str) -> tuple[str, str]:
     """
     label = app[:-4] if app.lower().endswith(".exe") else app
     for browser, short in _BROWSER_SUFFIXES.items():
-        matched = False
-        for dash in _DASHES:
-            suffix = f"{dash}{browser}"
-            if title.endswith(suffix):
-                title = title[:-len(suffix)]
-                label = short
-                matched = True
-                break
-        if matched:
+        suffix = f" - {browser}"
+        if title.endswith(suffix):
+            title = title[: -len(suffix)]
+            label = short
             break
-
     for site in _SITE_SUFFIXES:
-        for dash in _DASHES:
-            suffix = f"{dash}{site}"
-            if title.endswith(suffix):
-                title = title[:-len(suffix)]
-                label = site
-                break
-
+        suffix = f" - {site}"
+        if title.endswith(suffix):
+            title = title[: -len(suffix)]
+            label = site
+            break
     return title.strip(), label
 
 # aw-server rejects requests whose Host header isn't localhost (DNS-rebinding

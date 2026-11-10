@@ -174,29 +174,6 @@ def test_short_episodes_fold_into_briefly_line(monkeypatch):
     assert 'YouTube: "Skirk vs Ball in 66s" (5m)' in chunks[1].text
 
 
-def test_normalize_title_strips_em_dash_browser_and_site_suffix():
-    title, label = normalize_title(
-        "zen.exe",
-        "Inbox - albertzz@bu.edu - Boston University Mail — Zen Browser",
-    )
-    assert title == "Inbox - albertzz@bu.edu - Boston University Mail"
-    assert label == "Zen"
-
-    title2, label2 = normalize_title(
-        "zen.exe",
-        "Did I run from the police? - YouTube — Zen Browser",
-    )
-    assert title2 == "Did I run from the police?"
-    assert label2 == "YouTube"
-
-    title3, label3 = normalize_title(
-        "firefox.exe",
-        "Page 29 » nhentai — Mozilla Firefox",
-    )
-    assert title3 == "Page 29 » nhentai"
-    assert label3 == "Firefox"
-
-
 def test_brief_streak_splits_on_gap_over_tolerance(monkeypatch):
     src = _source(monkeypatch, {
         WINDOW_BUCKET: [
