@@ -169,9 +169,7 @@ def generate_diary_entry(date: str, chunks: list[Chunk]) -> str:
 
     timeline = "\n".join(c.text for c in chunks)
 
-    # Only include instructions about health data that is actually in the
-    # timeline — gemma4:e4b fabricates content it was primed for by the
-    # instructions alone, and ignores "if no X chunk" conditionals.
+    # Only include instructions about health data that is actually in the timeline
     kinds = {c.metadata.get("kind") for c in chunks}
     health_rules = []
     if "vitals" in kinds:
@@ -192,7 +190,7 @@ Write in first person, past tense, in a natural and honest voice — like a real
 Rules:
 - Plain text only. No markdown, no bullet points, no headers.
 - No advice, editorializing, or filler phrases like "it was a productive day."
-- The timeline is an event log with exact titles. Name the specific things — the matchup, the game, the boss, the video's subject, the project, the person — never just the app or the category.
+- The timeline is an event log with exact titles. Name the specific things — the matchup, the game, the video's subject, the project, the person — never just the app or the category.
 - The test for every sentence: reading it in a year, it should say what the day was about, not which apps were open.
 - Long unfocused stretches are part of the day — characterize them honestly, in proportion to the time they took.
 - Follow the timeline chronologically and group related activity into natural blocks.
